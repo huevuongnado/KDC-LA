@@ -15,7 +15,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AddComment
+import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.Feedback
 import androidx.compose.material.icons.filled.HowToReg
 import androidx.compose.material.icons.filled.Key
@@ -40,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.ComplaintDoc
 import com.example.data.model.DomainConstants
+import com.example.data.model.HouseholdSurveyDoc
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.PortalTheme
@@ -68,6 +71,9 @@ fun MineScreen(
     }
     val myMembers = remember(state.people, myHousehold) {
         myHousehold?.let { h -> state.people.filter { it.householdId == h.id } }.orEmpty()
+    }
+    val mySurvey = remember(state.householdSurveys, myHousehold) {
+        myHousehold?.let { state.surveyForHousehold(it.id) }
     }
     val visibleComplaints = remember(state.complaints, session, state.isAdmin) {
         if (session == null) emptyList()
@@ -276,6 +282,22 @@ fun MineScreen(
             }
         }
 
+        if (myHousehold != null) {
+            item {
+                MineHouseholdSurveyCard(
+                    survey = mySurvey,
+                    onOpenSurvey = {
+                        onOpenDialog(
+                            ActiveDialog.HouseholdSurveyEditor(
+                                household = myHousehold,
+                                existing = mySurvey,
+                            )
+                        )
+                    },
+                )
+            }
+        }
+
         // Complaints Section
         item {
             Card(
@@ -413,6 +435,134 @@ fun MineScreen(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MineHouseholdSurveyCard(
+    survey: HouseholdSurveyDoc?,
+    onOpenSurvey: () -> Unit,
+) {
+    val semColors = PortalTheme.colors
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Agriculture,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                    Column {
+                        Text(
+                            text = "Kinh tế – Tài sản – Vật nuôi",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = if (survey == null) "Chưa kê khai thông tin" else "Đã cập nhật dữ liệu hộ",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (survey == null) semColors.amberText else semColors.successText,
+                        )
+                    }
+                }
+                Button(
+                    onClick = onOpenSurvey,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("mine_edit_survey_button"),
+                ) {
+                    Icon(Icons.Filled.EditNote, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (survey == null) "Tự nhập" else "Cập nhật")
+                }
+            }
+
+            if (survey == null) {
+                Text(
+                    text = "Bà con chủ động nhập thu nhập hằng năm, xe máy, ô tô, xe tải, máy bơm, máy cày, máy xát lúa, số lượng bò, trâu, heo, gà, vịt và các vấn đề khác của hộ.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                HorizontalDivider()
+                val incomeLabel = if (survey.annualIncomeMillion > 0) {
+                    "${survey.annualIncomeMillion} triệu đ/năm (${survey.incomeBracket})"
+                } else {
+                    survey.incomeBracket
+                }
+                Text(
+                    text = "Thu nhập: $incomeLabel • Nguồn chính: ${survey.mainIncomeSource}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                )
+                if (survey.farmLandNote.isNotBlank()) {
+                    Text(
+                        text = "Đất sản xuất: ${survey.farmLandNote}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                val equipmentParts = buildList {
+                    if (survey.motorbikes > 0) add("${survey.motorbikes} xe máy")
+                    if (survey.cars > 0) add("${survey.cars} ô tô")
+                    if (survey.trucks > 0) add("${survey.trucks} xe tải")
+                    if (survey.waterPumps > 0) add("${survey.waterPumps} máy bơm")
+                    if (survey.tractors > 0) add("${survey.tractors} máy cày")
+                    if (survey.riceMills > 0) add("${survey.riceMills} máy xát lúa")
+                    if (survey.sprayersOrCutters > 0) add("${survey.sprayersOrCutters} máy cắt/phun")
+                    if (survey.otherEquipment.isNotBlank()) add(survey.otherEquipment)
+                }
+                Text(
+                    text = "Phương tiện & máy móc: ${if (equipmentParts.isEmpty()) "Chưa kê khai" else equipmentParts.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                val livestockParts = buildList {
+                    if (survey.cows > 0) add("${survey.cows} bò")
+                    if (survey.buffaloes > 0) add("${survey.buffaloes} trâu")
+                    if (survey.pigs > 0) add("${survey.pigs} heo")
+                    if (survey.chickens > 0) add("${survey.chickens} gà")
+                    if (survey.ducks > 0) add("${survey.ducks} vịt")
+                    if (survey.otherLivestock.isNotBlank()) add(survey.otherLivestock)
+                }
+                Text(
+                    text = "Vật nuôi: ${if (livestockParts.isEmpty()) "Không có" else livestockParts.joinToString(", ")}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                Text(
+                    text = "Nhà ở: ${survey.houseType} • Nước: ${survey.waterSource}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (survey.otherNotes.isNotBlank()) {
+                    Text(
+                        text = "Ghi chú khác: ${survey.otherNotes}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         }

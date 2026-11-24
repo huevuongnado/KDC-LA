@@ -581,3 +581,147 @@ test("Citizen accounts enforce limit(1) lookup, boundUid ownership, self passwor
   );
 });
 
+test("Household surveys allow linked citizens to self-report own household only while blocking cross-household access and tampering", async () => {
+  const past = new Date(Date.now() - 5000);
+  const adminDb = adminContext().firestore();
+  const aliceDb = citizenContext(ALICE_UID, ALICE_EMAIL, true).firestore();
+  const bobDb = citizenContext(BOB_UID, BOB_EMAIL, true).firestore();
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await db.collection("households").doc("LA001").set({
+      head: "Nguyễn Văn An",
+      cluster: "Cụm dân cư Hóc Nhiêu",
+      status: "Thường trú",
+      classify: "Không",
+      address: "",
+      memberEmails: [ALICE_EMAIL],
+      memberUids: [ALICE_UID],
+      createdAt: past,
+      updatedAt: past,
+    });
+    await db.collection("households").doc("LA002").set({
+      head: "Trần Thị Bình",
+      cluster: "Cụm dân cư Làng Vang",
+      status: "Thường trú",
+      classify: "Hộ nghèo",
+      address: "",
+      memberEmails: [],
+      memberUids: [],
+      createdAt: past,
+      updatedAt: past,
+    });
+    await db.collection("citizen_accounts").doc("NK0004").set({
+      personId: "NK0004",
+      householdId: "LA002",
+      cluster: "Cụm dân cư Làng Vang",
+      name: "Trần Thị Bình",
+      phone: "0912000004",
+      cccd: "049162001004",
+      loginKeys: ["0912000004", "049162001004"],
+      passwordSalt: "0123456789abcdef0123456789abcdef",
+      passwordHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      mustChangePassword: false,
+      boundUid: BOB_UID,
+      createdAt: past,
+      updatedAt: past,
+    });
+    await db.collection("users").doc(BOB_UID).set({
+      userId: BOB_UID,
+      email: BOB_EMAIL,
+      name: "Trần Thị Bình",
+      phone: "0912000004",
+      cluster: "Cụm dân cư Làng Vang",
+      householdId: "LA002",
+      linkedPersonId: "NK0004",
+      role: "citizen",
+      createdAt: past,
+      updatedAt: past,
+    });
+  });
+
+  const validAliceSurvey = {
+    householdId: "LA001",
+    cluster: "Cụm dân cư Hóc Nhiêu",
+    headName: "Nguyễn Văn An",
+    updatedByName: "Alice",
+    updatedByUid: ALICE_UID,
+    annualIncomeMillion: 120,
+    incomeBracket: "70 - 150 triệu/năm",
+    mainIncomeSource: "Làm nông / Trồng keo, lúa",
+    farmLandNote: "4 sào ruộng, 1 ha keo",
+    motorbikes: 2,
+    cars: 0,
+    trucks: 0,
+    waterPumps: 1,
+    tractors: 1,
+    riceMills: 0,
+    sprayersOrCutters: 1,
+    otherEquipment: "Máy cắt cỏ cầm tay",
+    cows: 3,
+    buffaloes: 1,
+    pigs: 2,
+    chickens: 35,
+    ducks: 15,
+    otherLivestock: "Ao cá 100m2",
+    houseType: "Nhà cấp 4",
+    waterSource: "Nước máy tập trung",
+    hasCleanToilet: true,
+    hasHealthInsuranceAll: true,
+    internetConnected: true,
+    otherNotes: "Đề nghị hỗ trợ giống keo mới",
+    createdAt: past,
+    updatedAt: past,
+  };
+
+  // Unauthenticated blocked
+  await assertFails(unauthDb.collection("household_surveys").doc("LA001").set(validAliceSurvey));
+  await assertFails(unauthDb.collection("household_surveys").doc("LA001").get());
+
+  // Negative count or ghost field rejected
+  await assertFails(aliceDb.collection("household_surveys").doc("LA001").set({ ...validAliceSurvey, cows: -1 }));
+  await assertFails(aliceDb.collection("household_surveys").doc("LA001").set({ ...validAliceSurvey, ghostField: 1 }));
+
+  // Alice can create & update her own LA001 survey
+  await assertSucceeds(aliceDb.collection("household_surveys").doc("LA001").set(validAliceSurvey));
+  await assertSucceeds(aliceDb.collection("household_surveys").doc("LA001").get());
+  await assertSucceeds(
+    aliceDb.collection("household_surveys").doc("LA001").update({
+      cows: 4,
+      chickens: 50,
+      updatedByUid: ALICE_UID,
+      updatedAt: new Date(Date.now() - 1000),
+    })
+  );
+
+  // Alice cannot bulk-list all household_surveys or access Bob's LA002
+  await assertFails(aliceDb.collection("household_surveys").get());
+  await assertFails(aliceDb.collection("household_surveys").doc("LA002").get());
+  await assertFails(
+    aliceDb.collection("household_surveys").doc("LA002").set({
+      ...validAliceSurvey,
+      householdId: "LA002",
+    })
+  );
+
+  // Bob (linked via citizen_accounts/users) can create LA002 survey, cannot read/edit LA001
+  await assertSucceeds(
+    bobDb.collection("household_surveys").doc("LA002").set({
+      ...validAliceSurvey,
+      householdId: "LA002",
+      cluster: "Cụm dân cư Làng Vang",
+      headName: "Trần Thị Bình",
+      updatedByName: "Trần Thị Bình",
+      updatedByUid: BOB_UID,
+    })
+  );
+  await assertFails(bobDb.collection("household_surveys").doc("LA001").get());
+  await assertFails(bobDb.collection("household_surveys").doc("LA001").update({ cows: 99, updatedByUid: BOB_UID, updatedAt: new Date(Date.now() - 1000) }));
+
+  // Admin can list and read all surveys and delete
+  await assertSucceeds(adminDb.collection("household_surveys").get());
+  await assertSucceeds(adminDb.collection("household_surveys").doc("LA001").delete());
+});
+
+

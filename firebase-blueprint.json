@@ -145,6 +145,45 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["personId", "householdId", "cluster", "name", "loginKeys", "passwordSalt", "passwordHash", "mustChangePassword", "createdAt", "updatedAt"]
+    },
+    "HouseholdSurvey": {
+      "title": "HouseholdSurvey",
+      "description": "Self-declared household annual income, vehicles/machinery, livestock, living conditions, and other notes.",
+      "type": "object",
+      "properties": {
+        "householdId": { "type": "string" },
+        "cluster": { "type": "string" },
+        "headName": { "type": "string" },
+        "updatedByName": { "type": "string" },
+        "updatedByUid": { "type": "string" },
+        "annualIncomeMillion": { "type": "integer" },
+        "incomeBracket": { "type": "string" },
+        "mainIncomeSource": { "type": "string" },
+        "farmLandNote": { "type": "string" },
+        "motorbikes": { "type": "integer" },
+        "cars": { "type": "integer" },
+        "trucks": { "type": "integer" },
+        "waterPumps": { "type": "integer" },
+        "tractors": { "type": "integer" },
+        "riceMills": { "type": "integer" },
+        "sprayersOrCutters": { "type": "integer" },
+        "otherEquipment": { "type": "string" },
+        "cows": { "type": "integer" },
+        "buffaloes": { "type": "integer" },
+        "pigs": { "type": "integer" },
+        "chickens": { "type": "integer" },
+        "ducks": { "type": "integer" },
+        "otherLivestock": { "type": "string" },
+        "houseType": { "type": "string" },
+        "waterSource": { "type": "string" },
+        "hasCleanToilet": { "type": "boolean" },
+        "hasHealthInsuranceAll": { "type": "boolean" },
+        "internetConnected": { "type": "boolean" },
+        "otherNotes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["householdId", "cluster", "headName", "updatedByUid", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -163,6 +202,10 @@
     "/households/{householdId}": {
       "schema": { "$ref": "#/entities/Household" },
       "description": "Shared village households collection."
+    },
+    "/household_surveys/{householdId}": {
+      "schema": { "$ref": "#/entities/HouseholdSurvey" },
+      "description": "Self-declared socioeconomic, equipment, livestock, and living condition data per household."
     },
     "/people/{personId}": {
       "schema": { "$ref": "#/entities/Person" },

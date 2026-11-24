@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,11 +16,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Agriculture
 import androidx.compose.material.icons.filled.Apartment
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditNote
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FamilyRestroom
@@ -51,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.data.model.DomainConstants
 import com.example.data.model.HouseholdDoc
+import com.example.data.model.HouseholdSurveyDoc
 import com.example.data.model.PersonDoc
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.KpiMetricCard
@@ -86,6 +91,9 @@ fun HouseholdsScreen(
 
     val memberCountsByHousehold = remember(state.people) {
         state.people.groupBy { it.householdId }
+    }
+    val surveysByHousehold = remember(state.householdSurveys) {
+        state.householdSurveys.associateBy { it.householdId.ifBlank { it.id } }
     }
 
     val filteredHouseholds = remember(state.households, filters) {
@@ -276,6 +284,12 @@ fun HouseholdsScreen(
                     }
                 }
             }
+
+            if (state.householdSurveys.isNotEmpty()) {
+                item {
+                    VillageSurveySummaryCard(surveys = state.householdSurveys)
+                }
+            }
         }
 
         if (!state.isAdmin && state.households.isEmpty()) {
@@ -307,10 +321,20 @@ fun HouseholdsScreen(
         } else {
             items(filteredHouseholds, key = { it.id }) { household ->
                 val members = memberCountsByHousehold[household.id].orEmpty()
+                val survey = surveysByHousehold[household.id]
                 HouseholdCard(
                     household = household,
                     members = members,
+                    survey = survey,
                     isAdmin = state.isAdmin,
+                    onOpenSurvey = {
+                        onOpenDialog(
+                            ActiveDialog.HouseholdSurveyEditor(
+                                household = household,
+                                existing = survey,
+                            )
+                        )
+                    },
                     onEdit = { onOpenDialog(ActiveDialog.HouseholdEditor(household)) },
                     onDelete = { onOpenDialog(ActiveDialog.ConfirmDeleteHousehold(household)) },
                 )
@@ -320,10 +344,61 @@ fun HouseholdsScreen(
 }
 
 @Composable
+private fun VillageSurveySummaryCard(surveys: List<HouseholdSurveyDoc>) {
+    val totalCows = surveys.sumOf { it.cows }
+    val totalBuffaloes = surveys.sumOf { it.buffaloes }
+    val totalPigs = surveys.sumOf { it.pigs }
+    val totalPoultry = surveys.sumOf { it.chickens + it.ducks }
+    val totalMotorbikes = surveys.sumOf { it.motorbikes }
+    val totalCarsAndTrucks = surveys.sumOf { it.cars + it.trucks }
+    val totalMachines = surveys.sumOf { it.waterPumps + it.tractors + it.riceMills + it.sprayersOrCutters }
+
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Agriculture,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = "Tổng hợp kê khai toàn thôn (${surveys.size} hộ đã nhập)",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                text = "Phương tiện & máy móc: $totalMotorbikes xe máy • $totalCarsAndTrucks ô tô/xe tải • $totalMachines máy sản xuất (bơm, cày, xát, phun...)",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                text = "Vật nuôi: $totalCows bò • $totalBuffaloes trâu • $totalPigs heo • $totalPoultry gia cầm (gà, vịt)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
 private fun HouseholdCard(
     household: HouseholdDoc,
     members: List<PersonDoc>,
+    survey: HouseholdSurveyDoc?,
     isAdmin: Boolean,
+    onOpenSurvey: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -411,10 +486,37 @@ private fun HouseholdCard(
                 )
             }
 
-            Row(
+            if (survey != null) {
+                val incomeSummary = if (survey.annualIncomeMillion > 0) {
+                    "${survey.annualIncomeMillion} tr/năm"
+                } else {
+                    survey.incomeBracket
+                }
+                val assetSummary = buildList {
+                    if (survey.motorbikes > 0) add("${survey.motorbikes} xe máy")
+                    val fourWheels = survey.cars + survey.trucks
+                    if (fourWheels > 0) add("$fourWheels ô tô/tải")
+                    val machines = survey.waterPumps + survey.tractors + survey.riceMills + survey.sprayersOrCutters
+                    if (machines > 0) add("$machines máy NN")
+                    if (survey.cows > 0) add("${survey.cows} bò")
+                    if (survey.buffaloes > 0) add("${survey.buffaloes} trâu")
+                    if (survey.pigs > 0) add("${survey.pigs} heo")
+                    val poultry = survey.chickens + survey.ducks
+                    if (poultry > 0) add("$poultry gà/vịt")
+                }.joinToString(" • ")
+                Text(
+                    text = "Kê khai: $incomeSummary" + if (assetSummary.isNotBlank()) " • $assetSummary" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = semColors.successText,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+
+            @OptIn(ExperimentalLayoutApi::class)
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                verticalArrangement = Arrangement.Center,
             ) {
                 TextButton(
                     onClick = { expanded = !expanded },
@@ -426,11 +528,24 @@ private fun HouseholdCard(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(4.dp))
-                    Text(if (expanded) "Ẩn thành viên" else "Xem thành viên (${members.size})")
+                    Text(if (expanded) "Ẩn thành viên" else "Thành viên (${members.size})")
                 }
 
-                if (isAdmin) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(
+                        onClick = onOpenSurvey,
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("open_household_survey_${household.id}"),
+                    ) {
+                        Icon(Icons.Filled.EditNote, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(if (survey == null) "Tự kê khai" else "Tài sản/Vật nuôi")
+                    }
+                    if (isAdmin) {
                         TextButton(
                             onClick = onEdit,
                             modifier = Modifier.minimumInteractiveComponentSize(),
@@ -439,18 +554,16 @@ private fun HouseholdCard(
                             Spacer(Modifier.width(4.dp))
                             Text("Sửa")
                         }
-                        TextButton(
+                        IconButton(
                             onClick = onDelete,
                             modifier = Modifier.minimumInteractiveComponentSize(),
                         ) {
                             Icon(
                                 Icons.Filled.Delete,
-                                contentDescription = null,
+                                contentDescription = "Xóa hộ ${household.id}",
                                 tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(18.dp),
                             )
-                            Spacer(Modifier.width(4.dp))
-                            Text("Xóa", color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }

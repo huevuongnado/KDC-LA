@@ -48,15 +48,28 @@ service cloud.firestore {
     }
 
     function isLinkedCitizenOfHousehold(householdId) {
+      let userPath = /databases/$(database)/documents/users/$(request.auth.uid);
+      let userExists = exists(userPath);
+      let userData = userExists ? get(userPath).data : {};
+      let pid = ('linkedPersonId' in userData) ? userData.linkedPersonId : '';
+      let accPath = /databases/$(database)/documents/citizen_accounts/$(pid);
       return isSignedIn() &&
-        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.householdId == householdId &&
-        ('linkedPersonId' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId is string &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId.size() > 0 &&
-        exists(/databases/$(database)/documents/citizen_accounts/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId)) &&
-        get(/databases/$(database)/documents/citizen_accounts/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId)).data.boundUid == request.auth.uid &&
-        get(/databases/$(database)/documents/citizen_accounts/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId)).data.householdId == householdId;
+        userExists &&
+        userData.householdId == householdId &&
+        pid is string && pid.size() > 0 &&
+        exists(accPath) &&
+        get(accPath).data.boundUid == request.auth.uid &&
+        get(accPath).data.householdId == householdId;
+    }
+
+    function isHouseholdMemberById(householdId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/households/$(householdId)) &&
+        isHouseholdMember(get(/databases/$(database)/documents/households/$(householdId)).data);
+    }
+
+    function canAccessHousehold(householdId) {
+      return isAdmin() || isLinkedCitizenOfHousehold(householdId) || isHouseholdMemberById(householdId);
     }
 
     function isValidUserProfile(data) {
@@ -165,6 +178,44 @@ service cloud.firestore {
         isValidTimestamp(data.updatedAt);
     }
 
+    function isNonNegInt(val, maxVal) {
+      return val is int && val >= 0 && val <= maxVal;
+    }
+
+    function isValidHouseholdSurvey(data) {
+      return data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 64 &&
+        data.cluster is string && data.cluster.size() >= 1 && data.cluster.size() <= 100 &&
+        data.headName is string && data.headName.size() >= 1 && data.headName.size() <= 120 &&
+        (!('updatedByName' in data) || (data.updatedByName is string && data.updatedByName.size() <= 120)) &&
+        data.updatedByUid is string && data.updatedByUid.size() >= 1 && data.updatedByUid.size() <= 128 &&
+        (!('annualIncomeMillion' in data) || isNonNegInt(data.annualIncomeMillion, 100000)) &&
+        (!('incomeBracket' in data) || (data.incomeBracket is string && data.incomeBracket.size() <= 80)) &&
+        (!('mainIncomeSource' in data) || (data.mainIncomeSource is string && data.mainIncomeSource.size() <= 120)) &&
+        (!('farmLandNote' in data) || (data.farmLandNote is string && data.farmLandNote.size() <= 200)) &&
+        (!('motorbikes' in data) || isNonNegInt(data.motorbikes, 100)) &&
+        (!('cars' in data) || isNonNegInt(data.cars, 50)) &&
+        (!('trucks' in data) || isNonNegInt(data.trucks, 50)) &&
+        (!('waterPumps' in data) || isNonNegInt(data.waterPumps, 100)) &&
+        (!('tractors' in data) || isNonNegInt(data.tractors, 50)) &&
+        (!('riceMills' in data) || isNonNegInt(data.riceMills, 50)) &&
+        (!('sprayersOrCutters' in data) || isNonNegInt(data.sprayersOrCutters, 100)) &&
+        (!('otherEquipment' in data) || (data.otherEquipment is string && data.otherEquipment.size() <= 250)) &&
+        (!('cows' in data) || isNonNegInt(data.cows, 5000)) &&
+        (!('buffaloes' in data) || isNonNegInt(data.buffaloes, 5000)) &&
+        (!('pigs' in data) || isNonNegInt(data.pigs, 10000)) &&
+        (!('chickens' in data) || isNonNegInt(data.chickens, 100000)) &&
+        (!('ducks' in data) || isNonNegInt(data.ducks, 100000)) &&
+        (!('otherLivestock' in data) || (data.otherLivestock is string && data.otherLivestock.size() <= 250)) &&
+        (!('houseType' in data) || (data.houseType is string && data.houseType.size() <= 80)) &&
+        (!('waterSource' in data) || (data.waterSource is string && data.waterSource.size() <= 80)) &&
+        (!('hasCleanToilet' in data) || data.hasCleanToilet is bool) &&
+        (!('hasHealthInsuranceAll' in data) || data.hasHealthInsuranceAll is bool) &&
+        (!('internetConnected' in data) || data.internetConnected is bool) &&
+        (!('otherNotes' in data) || (data.otherNotes is string && data.otherNotes.size() <= 1000)) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
     match /users/{userId} {
       allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
       allow list: if isAdmin();
@@ -248,6 +299,45 @@ service cloud.firestore {
         isValidHousehold(incoming()) &&
         incoming().createdAt == existing().createdAt &&
         incoming().diff(existing()).affectedKeys().hasOnly(['head', 'cluster', 'status', 'classify', 'address', 'memberEmails', 'memberUids', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(householdId);
+    }
+
+    match /household_surveys/{householdId} {
+      allow get: if isSignedIn() && isValidId(householdId) && canAccessHousehold(householdId);
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() &&
+        isValidId(householdId) &&
+        canAccessHousehold(householdId) &&
+        incoming().householdId == householdId &&
+        incoming().updatedByUid == request.auth.uid &&
+        incoming().keys().hasAll(['householdId', 'cluster', 'headName', 'updatedByUid', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly([
+          'householdId', 'cluster', 'headName', 'updatedByName', 'updatedByUid',
+          'annualIncomeMillion', 'incomeBracket', 'mainIncomeSource', 'farmLandNote',
+          'motorbikes', 'cars', 'trucks', 'waterPumps', 'tractors', 'riceMills', 'sprayersOrCutters', 'otherEquipment',
+          'cows', 'buffaloes', 'pigs', 'chickens', 'ducks', 'otherLivestock',
+          'houseType', 'waterSource', 'hasCleanToilet', 'hasHealthInsuranceAll', 'internetConnected', 'otherNotes',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidHouseholdSurvey(incoming());
+
+      allow update: if isSignedIn() &&
+        isValidId(householdId) &&
+        incoming().householdId == existing().householdId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedByUid == request.auth.uid &&
+        incoming().keys().hasOnly([
+          'householdId', 'cluster', 'headName', 'updatedByName', 'updatedByUid',
+          'annualIncomeMillion', 'incomeBracket', 'mainIncomeSource', 'farmLandNote',
+          'motorbikes', 'cars', 'trucks', 'waterPumps', 'tractors', 'riceMills', 'sprayersOrCutters', 'otherEquipment',
+          'cows', 'buffaloes', 'pigs', 'chickens', 'ducks', 'otherLivestock',
+          'houseType', 'waterSource', 'hasCleanToilet', 'hasHealthInsuranceAll', 'internetConnected', 'otherNotes',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidHouseholdSurvey(incoming()) &&
+        canAccessHousehold(householdId);
 
       allow delete: if isAdmin() && isValidId(householdId);
     }

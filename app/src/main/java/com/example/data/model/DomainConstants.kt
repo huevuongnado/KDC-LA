@@ -96,6 +96,38 @@ object DomainConstants {
 
     val FONT_SIZES = listOf(13, 14, 15, 16, 17, 18, 19, 20)
 
+    val INCOME_BRACKETS = listOf(
+        "Dưới 30 triệu/năm",
+        "30 - 70 triệu/năm",
+        "70 - 150 triệu/năm",
+        "150 - 300 triệu/năm",
+        "Trên 300 triệu/năm",
+    )
+
+    val MAIN_INCOME_SOURCES = listOf(
+        "Làm nông / Trồng keo, lúa",
+        "Chăn nuôi",
+        "Buôn bán / Dịch vụ",
+        "Làm thuê / Công nhân",
+        "Lương hưu / Trợ cấp",
+        "Khác",
+    )
+
+    val HOUSE_TYPES = listOf(
+        "Nhà cấp 4",
+        "Nhà kiên cố / Mái bằng / Tầng",
+        "Nhà bán kiên cố / Nhà gỗ",
+        "Nhà tạm",
+        "Khác",
+    )
+
+    val WATER_SOURCES = listOf(
+        "Nước máy tập trung",
+        "Giếng đào / Giếng khoan",
+        "Nước suối / Tự chảy",
+        "Khác",
+    )
+
     fun shortClusterName(cluster: String): String =
         cluster.removePrefix("Cụm dân cư ").trim()
 }

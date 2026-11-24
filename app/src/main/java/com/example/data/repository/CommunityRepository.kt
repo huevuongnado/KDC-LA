@@ -9,6 +9,7 @@ import com.example.data.model.CitizenAccountDoc
 import com.example.data.model.ComplaintDoc
 import com.example.data.model.DomainConstants
 import com.example.data.model.HouseholdDoc
+import com.example.data.model.HouseholdSurveyDoc
 import com.example.data.model.InlineMemberDraft
 import com.example.data.model.PersonDoc
 import com.example.data.model.PortalSettings
@@ -261,6 +262,61 @@ class CommunityRepository(
                     (a + b + c).distinctBy { it.id }.sortedBy { it.id }
                 }
             )
+        }
+    }
+
+    fun observeHouseholdSurveys(
+        isAdmin: Boolean,
+        linkedHouseholdIds: List<String> = emptyList(),
+    ): Flow<List<HouseholdSurveyDoc>> = flow {
+        val uid = requireUserId()
+        val path = "household_surveys"
+        if (isAdmin) {
+            emitAll(
+                db.collection(path)
+                    .snapshots()
+                    .map { snap ->
+                        snap.toObjects(
+                            HouseholdSurveyDoc::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        ).sortedBy { it.householdId.ifBlank { it.id } }
+                    }
+                    .handleSnapshotErrors(uid, OperationType.LIST, path)
+            )
+        } else {
+            val cleanIds = linkedHouseholdIds.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            if (cleanIds.isEmpty()) {
+                emit(emptyList())
+            } else {
+                val docFlows = cleanIds.map { hhId ->
+                    db.collection(path).document(hhId)
+                        .snapshots()
+                        .map { snap ->
+                            if (snap.exists()) {
+                                snap.toObject(
+                                    HouseholdSurveyDoc::class.java,
+                                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                                )
+                            } else null
+                        }
+                        .catch { error ->
+                            val fe = generateSequence(error) { it.cause }
+                                .filterIsInstance<FirebaseFirestoreException>()
+                                .firstOrNull()
+                            if (fe?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                                emit(null)
+                            } else {
+                                if (fe == null && error is CancellationException) throw error
+                                throw error
+                            }
+                        }
+                }
+                emitAll(
+                    combine(docFlows) { items ->
+                        items.filterNotNull().sortedBy { it.householdId.ifBlank { it.id } }
+                    }
+                )
+            }
         }
     }
 
@@ -989,6 +1045,7 @@ class CommunityRepository(
                 batch.commit().await()
             }
             hhRef.delete().await()
+            runCatching { db.collection("household_surveys").document(householdId).delete().await() }
             Result.success("Đã xóa hộ $householdId và nhân khẩu liên quan.")
         } catch (e: CancellationException) {
             throw e
@@ -1664,6 +1721,74 @@ class CommunityRepository(
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, docRef.path)
             Result.failure(Exception(toVietnameseFirestoreMessage(e, "Không thể lưu cài đặt.")))
+        }
+    }
+
+    // --- Household Self-Reported Surveys (Kinh tế, Phương tiện, Máy móc, Vật nuôi) ---
+    suspend fun saveHouseholdSurvey(
+        existing: HouseholdSurveyDoc?,
+        household: HouseholdDoc,
+        updaterName: String,
+        draft: HouseholdSurveyDoc,
+    ): Result<String> {
+        val cleanHouseholdId = household.id.trim()
+        if (cleanHouseholdId.isBlank()) {
+            return Result.failure(IllegalArgumentException("Không xác định được mã hộ gia đình."))
+        }
+        val docRef = db.collection("household_surveys").document(cleanHouseholdId)
+        return try {
+            val uid = requireUserId()
+            val existsRemote = existing != null || docRef.get().await().exists()
+            val cleanUpdater = updaterName.trim().ifBlank { household.head }.take(120)
+            val basePayload = mapOf<String, Any>(
+                "householdId" to cleanHouseholdId,
+                "cluster" to household.cluster.ifBlank { DomainConstants.CLUSTERS.first() }.take(100),
+                "headName" to household.head.ifBlank { "Chủ hộ" }.take(120),
+                "updatedByName" to cleanUpdater,
+                "updatedByUid" to uid,
+                "annualIncomeMillion" to draft.annualIncomeMillion.coerceIn(0, 100_000),
+                "incomeBracket" to draft.incomeBracket.trim().take(80),
+                "mainIncomeSource" to draft.mainIncomeSource.trim().take(120),
+                "farmLandNote" to draft.farmLandNote.trim().take(200),
+                "motorbikes" to draft.motorbikes.coerceIn(0, 100),
+                "cars" to draft.cars.coerceIn(0, 50),
+                "trucks" to draft.trucks.coerceIn(0, 50),
+                "waterPumps" to draft.waterPumps.coerceIn(0, 100),
+                "tractors" to draft.tractors.coerceIn(0, 50),
+                "riceMills" to draft.riceMills.coerceIn(0, 50),
+                "sprayersOrCutters" to draft.sprayersOrCutters.coerceIn(0, 100),
+                "otherEquipment" to draft.otherEquipment.trim().take(250),
+                "cows" to draft.cows.coerceIn(0, 5_000),
+                "buffaloes" to draft.buffaloes.coerceIn(0, 5_000),
+                "pigs" to draft.pigs.coerceIn(0, 10_000),
+                "chickens" to draft.chickens.coerceIn(0, 100_000),
+                "ducks" to draft.ducks.coerceIn(0, 100_000),
+                "otherLivestock" to draft.otherLivestock.trim().take(250),
+                "houseType" to draft.houseType.trim().take(80),
+                "waterSource" to draft.waterSource.trim().take(80),
+                "hasCleanToilet" to draft.hasCleanToilet,
+                "hasHealthInsuranceAll" to draft.hasHealthInsuranceAll,
+                "internetConnected" to draft.internetConnected,
+                "otherNotes" to draft.otherNotes.trim().take(1_000),
+                "updatedAt" to FieldValue.serverTimestamp(),
+            )
+            if (!existsRemote) {
+                docRef.set(basePayload + ("createdAt" to FieldValue.serverTimestamp())).await()
+            } else {
+                docRef.update(basePayload).await()
+            }
+            Result.success("Đã lưu thông tin kinh tế, tài sản & vật nuôi cho hộ $cleanHouseholdId.")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(
+                e,
+                if (existing == null) OperationType.CREATE else OperationType.UPDATE,
+                docRef.path
+            )
+            Result.failure(
+                Exception(toVietnameseFirestoreMessage(e, "Không thể lưu thông tin kê khai của hộ."))
+            )
         }
     }
 }

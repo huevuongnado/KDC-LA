@@ -10,6 +10,7 @@ import com.example.data.model.CitizenAccountDoc
 import com.example.data.model.ComplaintDoc
 import com.example.data.model.DomainConstants
 import com.example.data.model.HouseholdDoc
+import com.example.data.model.HouseholdSurveyDoc
 import com.example.data.model.InlineMemberDraft
 import com.example.data.model.PersonAddMode
 import com.example.data.model.PersonDoc
@@ -54,6 +55,10 @@ sealed interface ActiveDialog {
     data class AdminResetCitizenPassword(val person: PersonDoc) : ActiveDialog
     data class PostEditor(val post: PostDoc? = null) : ActiveDialog
     data class HouseholdEditor(val household: HouseholdDoc? = null) : ActiveDialog
+    data class HouseholdSurveyEditor(
+        val household: HouseholdDoc,
+        val existing: HouseholdSurveyDoc? = null,
+    ) : ActiveDialog
     data class PersonEditor(
         val person: PersonDoc? = null,
         val mode: PersonAddMode = PersonAddMode.NORMAL,
@@ -101,6 +106,7 @@ data class PortalUiState(
     val citizenLoginError: String? = null,
     val currentTab: PortalTab = PortalTab.NEWS,
     val households: List<HouseholdDoc> = emptyList(),
+    val householdSurveys: List<HouseholdSurveyDoc> = emptyList(),
     val people: List<PersonDoc> = emptyList(),
     val posts: List<PostDoc> = emptyList(),
     val complaints: List<ComplaintDoc> = emptyList(),
@@ -117,6 +123,9 @@ data class PortalUiState(
                 citizenLoginBusy ||
                 !citizenLoginError.isNullOrBlank()
             )
+
+    fun surveyForHousehold(householdId: String): HouseholdSurveyDoc? =
+        householdSurveys.firstOrNull { it.householdId == householdId || it.id == householdId }
 
     fun nextHouseholdId(): String {
         val maxNum = households.maxOfOrNull { h ->
@@ -193,6 +202,24 @@ class MainViewModel(
         }
         .asStreamSlice("Không thể đồng bộ danh sách hộ gia đình.")
 
+    private val activeSurveyScopeFlow = combine(
+        repository.observeIsAdmin(),
+        householdsFlow,
+    ) { isAdmin, hhSlice ->
+        val hhIds = if (isAdmin) {
+            emptyList()
+        } else {
+            (hhSlice as? StreamSlice.Ready)?.data?.map { it.id }.orEmpty()
+        }
+        isAdmin to hhIds
+    }.distinctUntilChanged()
+
+    private val householdSurveysFlow = activeSurveyScopeFlow
+        .flatMapLatest { (isAdmin, hhIds) ->
+            repository.observeHouseholdSurveys(isAdmin, hhIds)
+        }
+        .asStreamSlice("Không thể đồng bộ thông tin kê khai của hộ.")
+
     private val peopleFlow = activeHouseholdScopeFlow
         .flatMapLatest { (isAdmin, linkedHhId) ->
             repository.observePeople(isAdmin, linkedHhId)
@@ -237,6 +264,7 @@ class MainViewModel(
         usersFlow,
         adminsFlow,
         citizenAccountsFlow,
+        householdSurveysFlow,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         DomainBundle(
@@ -247,6 +275,7 @@ class MainViewModel(
             users = values[4] as StreamSlice<List<UserProfileDoc>>,
             admins = values[5] as StreamSlice<List<AdminRecordDoc>>,
             citizenAccounts = values[6] as StreamSlice<List<CitizenAccountDoc>>,
+            householdSurveys = values[7] as StreamSlice<List<HouseholdSurveyDoc>>,
         )
     }
 
@@ -287,6 +316,7 @@ class MainViewModel(
         val users = (domainBundle.users as? StreamSlice.Ready)?.data.orEmpty()
         val admins = (domainBundle.admins as? StreamSlice.Ready)?.data.orEmpty()
         val citizenAccounts = (domainBundle.citizenAccounts as? StreamSlice.Ready)?.data.orEmpty()
+        val householdSurveys = (domainBundle.householdSurveys as? StreamSlice.Ready)?.data.orEmpty()
 
         val firstError = listOfNotNull(
             (authBundle.adminSlice as? StreamSlice.Failed)?.message,
@@ -337,6 +367,7 @@ class MainViewModel(
             citizenLoginError = controls.citizenLoginError,
             currentTab = controls.tab,
             households = households,
+            householdSurveys = householdSurveys,
             people = people,
             posts = posts,
             complaints = complaints,
@@ -476,6 +507,25 @@ class MainViewModel(
     fun deleteHousehold(household: HouseholdDoc) {
         viewModelScope.launch {
             handleResult(repository.deleteHousehold(household.id), closeOnSuccess = true)
+        }
+    }
+
+    fun saveHouseholdSurvey(
+        household: HouseholdDoc,
+        existing: HouseholdSurveyDoc?,
+        draft: HouseholdSurveyDoc,
+    ) {
+        val updaterName = uiState.value.session?.name.orEmpty()
+        viewModelScope.launch {
+            handleResult(
+                repository.saveHouseholdSurvey(
+                    existing = existing,
+                    household = household,
+                    updaterName = updaterName,
+                    draft = draft,
+                ),
+                closeOnSuccess = true,
+            )
         }
     }
 
@@ -689,7 +739,11 @@ class MainViewModel(
 
     fun prepareHouseholdsCsv(): String {
         val state = uiState.value
-        val csv = CsvExportHelper.buildHouseholdsCsv(state.households, state.people)
+        val csv = CsvExportHelper.buildHouseholdsCsv(
+            households = state.households,
+            people = state.people,
+            surveys = state.householdSurveys,
+        )
         pendingCsvFlow.value = csv
         return csv
     }
@@ -740,6 +794,7 @@ class MainViewModel(
         val users: StreamSlice<List<UserProfileDoc>>,
         val admins: StreamSlice<List<AdminRecordDoc>>,
         val citizenAccounts: StreamSlice<List<CitizenAccountDoc>>,
+        val householdSurveys: StreamSlice<List<HouseholdSurveyDoc>>,
     )
 
     private data class ControlBundle(

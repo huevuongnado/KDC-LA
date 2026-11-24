@@ -75,6 +75,7 @@ import com.example.ui.dialogs.ChangeOwnPasswordDialog
 import com.example.ui.dialogs.ComplaintDialog
 import com.example.ui.dialogs.ConfirmActionDialog
 import com.example.ui.dialogs.HouseholdEditorDialog
+import com.example.ui.dialogs.HouseholdSurveyDialog
 import com.example.ui.dialogs.PersonEditorDialog
 import com.example.ui.dialogs.PostEditorDialog
 import com.example.ui.dialogs.SettingsDialog
@@ -518,6 +519,19 @@ private fun ThonLongAnApp(
                     address = address,
                     memberEmailsRaw = memberEmailsRaw,
                     inlineMembers = inlineMembers,
+                )
+            },
+        )
+
+        is ActiveDialog.HouseholdSurveyEditor -> HouseholdSurveyDialog(
+            household = dialog.household,
+            existing = dialog.existing,
+            onDismiss = { viewModel.closeDialog() },
+            onSave = { draft ->
+                viewModel.saveHouseholdSurvey(
+                    household = dialog.household,
+                    existing = dialog.existing,
+                    draft = draft,
                 )
             },
         )

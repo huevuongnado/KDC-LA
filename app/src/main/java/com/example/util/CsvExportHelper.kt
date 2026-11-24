@@ -3,6 +3,7 @@ package com.example.util
 import android.content.Context
 import android.net.Uri
 import com.example.data.model.HouseholdDoc
+import com.example.data.model.HouseholdSurveyDoc
 import com.example.data.model.PersonDoc
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,7 +24,9 @@ object CsvExportHelper {
     fun buildHouseholdsCsv(
         households: List<HouseholdDoc>,
         people: List<PersonDoc>,
+        surveys: List<HouseholdSurveyDoc> = emptyList(),
     ): String {
+        val surveysByHousehold = surveys.associateBy { it.householdId.ifBlank { it.id } }
         val header = listOf(
             "Mã hộ",
             "Chủ hộ",
@@ -33,8 +36,33 @@ object CsvExportHelper {
             "Tình trạng",
             "Địa chỉ",
             "Email thành viên liên kết",
+            "Thu nhập (triệu/năm)",
+            "Mức thu nhập",
+            "Nguồn thu chính",
+            "Đất sản xuất",
+            "Xe máy",
+            "Ô tô",
+            "Xe tải",
+            "Máy bơm",
+            "Máy cày",
+            "Máy xát lúa",
+            "Máy cắt/phun",
+            "Máy móc khác",
+            "Bò",
+            "Trâu",
+            "Heo",
+            "Gà",
+            "Vịt",
+            "Vật nuôi khác",
+            "Loại nhà ở",
+            "Nguồn nước",
+            "Nhà tiêu HVS",
+            "100% BHYT",
+            "Internet",
+            "Vấn đề / Ghi chú khác",
         )
         val rows = households.map { h ->
+            val s = surveysByHousehold[h.id]
             listOf(
                 h.id,
                 h.head,
@@ -44,6 +72,30 @@ object CsvExportHelper {
                 h.status,
                 h.address,
                 h.memberEmails.joinToString("; "),
+                s?.annualIncomeMillion?.toString() ?: "",
+                s?.incomeBracket ?: "",
+                s?.mainIncomeSource ?: "",
+                s?.farmLandNote ?: "",
+                s?.motorbikes?.toString() ?: "",
+                s?.cars?.toString() ?: "",
+                s?.trucks?.toString() ?: "",
+                s?.waterPumps?.toString() ?: "",
+                s?.tractors?.toString() ?: "",
+                s?.riceMills?.toString() ?: "",
+                s?.sprayersOrCutters?.toString() ?: "",
+                s?.otherEquipment ?: "",
+                s?.cows?.toString() ?: "",
+                s?.buffaloes?.toString() ?: "",
+                s?.pigs?.toString() ?: "",
+                s?.chickens?.toString() ?: "",
+                s?.ducks?.toString() ?: "",
+                s?.otherLivestock ?: "",
+                s?.houseType ?: "",
+                s?.waterSource ?: "",
+                s?.let { if (it.hasCleanToilet) "Có" else "Chưa" } ?: "",
+                s?.let { if (it.hasHealthInsuranceAll) "Có" else "Chưa" } ?: "",
+                s?.let { if (it.internetConnected) "Có" else "Không" } ?: "",
+                s?.otherNotes ?: "",
             )
         }
         return buildCsv(listOf(header) + rows)
