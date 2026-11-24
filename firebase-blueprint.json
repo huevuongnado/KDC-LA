@@ -1,0 +1,184 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Registered portal user profile and role assignment.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID of the user." },
+        "email": { "type": "string", "description": "Verified Google email address." },
+        "name": { "type": "string", "description": "Display name." },
+        "phone": { "type": "string", "description": "Contact phone number." },
+        "cluster": { "type": "string", "description": "Residential cluster name." },
+        "householdId": { "type": "string", "description": "Linked household ID." },
+        "linkedPersonId": { "type": "string", "description": "Verified citizen person ID." },
+        "role": { "type": "string", "enum": ["citizen", "admin"], "description": "User role." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
+      },
+      "required": ["userId", "email", "name", "role", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted admin access record keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "email": { "type": "string" },
+        "addedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "email", "createdAt"]
+    },
+    "Household": {
+      "title": "Household",
+      "description": "Village household record with authorized villager emails and UIDs.",
+      "type": "object",
+      "properties": {
+        "head": { "type": "string" },
+        "cluster": { "type": "string" },
+        "status": { "type": "string", "enum": ["Thường trú", "Tạm trú"] },
+        "classify": { "type": "string", "enum": ["Không", "Hộ nghèo", "Hộ cận nghèo", "Hộ chính sách"] },
+        "address": { "type": "string" },
+        "memberEmails": { "type": "array", "description": "Authorized lowercased Google emails for household viewing." },
+        "memberUids": { "type": "array", "description": "Authorized Firebase UIDs for household viewing." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["head", "cluster", "status", "classify", "memberEmails", "memberUids", "createdAt", "updatedAt"]
+    },
+    "Person": {
+      "title": "Person",
+      "description": "Resident record belonging to a household.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "relation": { "type": "string" },
+        "dob": { "type": "string" },
+        "gender": { "type": "string" },
+        "cccd": { "type": "string" },
+        "phone": { "type": "string" },
+        "householdId": { "type": "string" },
+        "cluster": { "type": "string" },
+        "residence": { "type": "string" },
+        "education": { "type": "string" },
+        "profession": { "type": "string" },
+        "religion": { "type": "string" },
+        "partyMember": { "type": "boolean" },
+        "job": { "type": "string" },
+        "tempStart": { "type": "string" },
+        "tempEnd": { "type": "string" },
+        "memberEmails": { "type": "array" },
+        "memberUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "relation", "gender", "householdId", "cluster", "residence", "partyMember", "job", "memberEmails", "memberUids", "createdAt", "updatedAt"]
+    },
+    "Post": {
+      "title": "Post",
+      "description": "Village announcement or propaganda post.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "category": { "type": "string" },
+        "scope": { "type": "string", "enum": ["Toàn thôn", "Theo cụm dân cư"] },
+        "cluster": { "type": "string" },
+        "content": { "type": "string" },
+        "dateIso": { "type": "string" },
+        "pinned": { "type": "boolean" },
+        "imageData": { "type": "string" },
+        "allowedEmails": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "category", "scope", "content", "dateIso", "pinned", "allowedEmails", "createdAt", "updatedAt"]
+    },
+    "Complaint": {
+      "title": "Complaint",
+      "description": "Citizen feedback, resident change report, or household link request.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "senderName": { "type": "string" },
+        "householdId": { "type": "string" },
+        "subject": { "type": "string" },
+        "content": { "type": "string" },
+        "dateIso": { "type": "string" },
+        "status": { "type": "string", "enum": ["Chờ xử lý", "Đã xử lý"] },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userEmail", "senderName", "subject", "content", "dateIso", "status", "createdAt", "updatedAt"]
+    },
+    "PortalSettingsDoc": {
+      "title": "PortalSettingsDoc",
+      "description": "Shared village portal header, slogan, and theme settings.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "slogan": { "type": "string" },
+        "themeKey": { "type": "string" },
+        "fontSize": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "slogan", "themeKey", "fontSize", "updatedAt"]
+    },
+    "CitizenAccount": {
+      "title": "CitizenAccount",
+      "description": "Citizen login credential keyed by personId with salted PBKDF2 password hash.",
+      "type": "object",
+      "properties": {
+        "personId": { "type": "string" },
+        "householdId": { "type": "string" },
+        "cluster": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "cccd": { "type": "string" },
+        "loginKeys": { "type": "array" },
+        "passwordSalt": { "type": "string" },
+        "passwordHash": { "type": "string" },
+        "mustChangePassword": { "type": "boolean" },
+        "boundUid": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["personId", "householdId", "cluster", "name", "loginKeys", "passwordSalt", "passwordHash", "mustChangePassword", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User profile and household linkage metadata."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Trusted village admin UID allowlist."
+    },
+    "/citizen_accounts/{personId}": {
+      "schema": { "$ref": "#/entities/CitizenAccount" },
+      "description": "Citizen phone/CCCD authentication credentials and password hashes."
+    },
+    "/households/{householdId}": {
+      "schema": { "$ref": "#/entities/Household" },
+      "description": "Shared village households collection."
+    },
+    "/people/{personId}": {
+      "schema": { "$ref": "#/entities/Person" },
+      "description": "Shared village residents collection."
+    },
+    "/posts/{postId}": {
+      "schema": { "$ref": "#/entities/Post" },
+      "description": "Community announcements and propaganda posts."
+    },
+    "/complaints/{complaintId}": {
+      "schema": { "$ref": "#/entities/Complaint" },
+      "description": "Citizen feedback and resident change reports."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/PortalSettingsDoc" },
+      "description": "Shared portal branding settings (document id: portal)."
+    }
+  }
+}

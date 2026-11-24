@@ -1,0 +1,6 @@
+{
+  "name": "Thôn Long An",
+  "description": "Phần mềm Quản lý Khu dân cư & Thông tin Tuyên truyền - Thôn Long An, xã Minh Long, tỉnh Quảng Ngãi.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

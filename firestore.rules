@@ -1,0 +1,335 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() &&
+        request.auth.token.email_verified == true &&
+        request.auth.token.email == 'huevuongnado@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() ||
+        (isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    function isValidTimestamp(ts) {
+      return ts is timestamp && ts <= request.time;
+    }
+
+    function isValidStringArray(arr, maxLen) {
+      return arr is list && arr.size() <= maxLen && (arr.size() == 0 || arr[0] is string);
+    }
+
+    function isHouseholdMember(data) {
+      return isSignedIn() && (
+        (request.auth.token.email_verified == true && request.auth.token.email in data.memberEmails) ||
+        (request.auth.uid in data.memberUids)
+      );
+    }
+
+    function isLinkedCitizenOfHousehold(householdId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.householdId == householdId &&
+        ('linkedPersonId' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId is string &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId.size() > 0 &&
+        exists(/databases/$(database)/documents/citizen_accounts/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId)) &&
+        get(/databases/$(database)/documents/citizen_accounts/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId)).data.boundUid == request.auth.uid &&
+        get(/databases/$(database)/documents/citizen_accounts/$(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.linkedPersonId)).data.householdId == householdId;
+    }
+
+    function isValidUserProfile(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.email is string && data.email.size() <= 200 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('cluster' in data) || (data.cluster is string && data.cluster.size() <= 100)) &&
+        (!('householdId' in data) || (data.householdId is string && data.householdId.size() <= 64)) &&
+        (!('linkedPersonId' in data) || (data.linkedPersonId is string && data.linkedPersonId.size() <= 64)) &&
+        data.role in ['citizen', 'admin'] &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidCitizenAccount(data) {
+      return data.personId is string && data.personId.size() >= 1 && data.personId.size() <= 128 &&
+        data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 64 &&
+        data.cluster is string && data.cluster.size() >= 1 && data.cluster.size() <= 100 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('cccd' in data) || (data.cccd is string && data.cccd.size() <= 30)) &&
+        isValidStringArray(data.loginKeys, 4) &&
+        data.passwordSalt is string && data.passwordSalt.size() >= 16 && data.passwordSalt.size() <= 128 &&
+        data.passwordHash is string && data.passwordHash.size() >= 32 && data.passwordHash.size() <= 256 &&
+        data.mustChangePassword is bool &&
+        (!('boundUid' in data) || (data.boundUid is string && data.boundUid.size() <= 128)) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAdminRecord(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        (!('addedBy' in data) || (data.addedBy is string && data.addedBy.size() <= 128)) &&
+        isValidTimestamp(data.createdAt);
+    }
+
+    function isValidHousehold(data) {
+      return data.head is string && data.head.size() >= 1 && data.head.size() <= 120 &&
+        data.cluster is string && data.cluster.size() >= 1 && data.cluster.size() <= 100 &&
+        data.status in ['Thường trú', 'Tạm trú'] &&
+        data.classify in ['Không', 'Hộ nghèo', 'Hộ cận nghèo', 'Hộ chính sách'] &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 250)) &&
+        isValidStringArray(data.memberEmails, 20) &&
+        isValidStringArray(data.memberUids, 20) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidPerson(data) {
+      return data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.relation is string && data.relation.size() >= 1 && data.relation.size() <= 60 &&
+        (!('dob' in data) || (data.dob is string && data.dob.size() <= 30)) &&
+        data.gender in ['Nam', 'Nữ', 'Khác'] &&
+        (!('cccd' in data) || (data.cccd is string && data.cccd.size() <= 30)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        data.householdId is string && data.householdId.size() >= 1 && data.householdId.size() <= 64 &&
+        data.cluster is string && data.cluster.size() >= 1 && data.cluster.size() <= 100 &&
+        data.residence in ['Thường trú', 'Tạm trú', 'Đi làm ăn xa', 'Đã chuyển đi'] &&
+        (!('education' in data) || (data.education is string && data.education.size() <= 60)) &&
+        (!('profession' in data) || (data.profession is string && data.profession.size() <= 80)) &&
+        (!('religion' in data) || (data.religion is string && data.religion.size() <= 60)) &&
+        data.partyMember is bool &&
+        data.job is string && data.job.size() >= 1 && data.job.size() <= 100 &&
+        (!('tempStart' in data) || (data.tempStart is string && data.tempStart.size() <= 30)) &&
+        (!('tempEnd' in data) || (data.tempEnd is string && data.tempEnd.size() <= 30)) &&
+        isValidStringArray(data.memberEmails, 20) &&
+        isValidStringArray(data.memberUids, 20) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidPost(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 80 &&
+        data.scope in ['Toàn thôn', 'Theo cụm dân cư'] &&
+        (!('cluster' in data) || (data.cluster is string && data.cluster.size() <= 100)) &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 5000 &&
+        data.dateIso is string && data.dateIso.size() >= 1 && data.dateIso.size() <= 40 &&
+        data.pinned is bool &&
+        (!('imageData' in data) || (data.imageData is string && data.imageData.size() <= 250000)) &&
+        isValidStringArray(data.allowedEmails, 50) &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidComplaint(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.userEmail is string && data.userEmail.size() <= 200 &&
+        data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120 &&
+        (!('householdId' in data) || (data.householdId is string && data.householdId.size() <= 64)) &&
+        data.subject is string && data.subject.size() >= 1 && data.subject.size() <= 120 &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 3000 &&
+        data.dateIso is string && data.dateIso.size() >= 1 && data.dateIso.size() <= 40 &&
+        data.status in ['Chờ xử lý', 'Đã xử lý'] &&
+        isValidTimestamp(data.createdAt) &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidPortalSettings(data) {
+      return data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+        data.slogan is string && data.slogan.size() >= 1 && data.slogan.size() <= 500 &&
+        data.themeKey in ['green', 'red', 'blue', 'teal', 'brown'] &&
+        data.fontSize is int && data.fontSize >= 13 && data.fontSize <= 20 &&
+        isValidTimestamp(data.updatedAt);
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        incoming().userId == request.auth.uid &&
+        incoming().keys().hasAll(['userId', 'email', 'name', 'role', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['userId', 'email', 'name', 'phone', 'cluster', 'householdId', 'linkedPersonId', 'role', 'createdAt', 'updatedAt']) &&
+        (incoming().role == 'citizen' || isAdmin()) &&
+        isValidUserProfile(incoming());
+
+      allow update: if isSignedIn() &&
+        isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (
+            request.auth.uid == userId &&
+            incoming().role == existing().role &&
+            incoming().email == existing().email &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'cluster', 'householdId', 'linkedPersonId', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    match /admins/{uid} {
+      allow get: if isSignedIn() && isValidId(uid) && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isAdmin() && isValidId(uid) && isValidAdminRecord(incoming());
+      allow delete: if isAdmin() && isValidId(uid);
+    }
+
+    match /citizen_accounts/{personId} {
+      allow get: if isSignedIn() && isValidId(personId) && (isAdmin() || existing().boundUid == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || request.query.limit <= 1);
+
+      allow create: if isAdmin() &&
+        isValidId(personId) &&
+        incoming().personId == personId &&
+        incoming().keys().hasAll(['personId', 'householdId', 'cluster', 'name', 'loginKeys', 'passwordSalt', 'passwordHash', 'mustChangePassword', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['personId', 'householdId', 'cluster', 'name', 'phone', 'cccd', 'loginKeys', 'passwordSalt', 'passwordHash', 'mustChangePassword', 'boundUid', 'createdAt', 'updatedAt']) &&
+        isValidCitizenAccount(incoming());
+
+      allow update: if isSignedIn() &&
+        isValidId(personId) &&
+        isValidCitizenAccount(incoming()) &&
+        incoming().personId == existing().personId &&
+        incoming().createdAt == existing().createdAt && (
+          isAdmin() ||
+          (
+            (!('boundUid' in existing()) || existing().boundUid == '' || existing().boundUid == request.auth.uid) &&
+            (incoming().boundUid == request.auth.uid || incoming().boundUid == '') &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['boundUid', 'updatedAt'])
+          ) ||
+          (
+            existing().boundUid == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['passwordSalt', 'passwordHash', 'mustChangePassword', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isAdmin() && isValidId(personId);
+    }
+
+    match /households/{householdId} {
+      allow get: if isSignedIn() && isValidId(householdId) && (isAdmin() || isHouseholdMember(existing()) || isLinkedCitizenOfHousehold(householdId));
+      allow list: if isSignedIn() && (isAdmin() || isHouseholdMember(existing()));
+
+      allow create: if isAdmin() &&
+        isValidId(householdId) &&
+        incoming().keys().hasAll(['head', 'cluster', 'status', 'classify', 'memberEmails', 'memberUids', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['head', 'cluster', 'status', 'classify', 'address', 'memberEmails', 'memberUids', 'createdAt', 'updatedAt']) &&
+        isValidHousehold(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(householdId) &&
+        isValidHousehold(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['head', 'cluster', 'status', 'classify', 'address', 'memberEmails', 'memberUids', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(householdId);
+    }
+
+    match /people/{personId} {
+      allow get: if isSignedIn() && isValidId(personId) && (isAdmin() || isHouseholdMember(existing()) || isLinkedCitizenOfHousehold(existing().householdId));
+      allow list: if isSignedIn() && (isAdmin() || isHouseholdMember(existing()) || isLinkedCitizenOfHousehold(existing().householdId));
+
+      allow create: if isAdmin() &&
+        isValidId(personId) &&
+        incoming().keys().hasAll(['name', 'relation', 'gender', 'householdId', 'cluster', 'residence', 'partyMember', 'job', 'memberEmails', 'memberUids', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['name', 'relation', 'dob', 'gender', 'cccd', 'phone', 'householdId', 'cluster', 'residence', 'education', 'profession', 'religion', 'partyMember', 'job', 'tempStart', 'tempEnd', 'memberEmails', 'memberUids', 'createdAt', 'updatedAt']) &&
+        isValidPerson(incoming()) &&
+        exists(/databases/$(database)/documents/households/$(incoming().householdId));
+
+      allow update: if isAdmin() &&
+        isValidId(personId) &&
+        isValidPerson(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        exists(/databases/$(database)/documents/households/$(incoming().householdId)) &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'relation', 'dob', 'gender', 'cccd', 'phone', 'householdId', 'cluster', 'residence', 'education', 'profession', 'religion', 'partyMember', 'job', 'tempStart', 'tempEnd', 'memberEmails', 'memberUids', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(personId);
+    }
+
+    match /posts/{postId} {
+      allow get: if isSignedIn() && isValidId(postId) && (
+        isAdmin() ||
+        existing().scope == 'Toàn thôn' ||
+        (request.auth.token.email_verified == true && request.auth.token.email in existing().allowedEmails)
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        existing().scope == 'Toàn thôn' ||
+        (request.auth.token.email_verified == true && request.auth.token.email in existing().allowedEmails)
+      );
+
+      allow create: if isAdmin() &&
+        isValidId(postId) &&
+        incoming().keys().hasAll(['title', 'category', 'scope', 'content', 'dateIso', 'pinned', 'allowedEmails', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['title', 'category', 'scope', 'cluster', 'content', 'dateIso', 'pinned', 'imageData', 'allowedEmails', 'createdAt', 'updatedAt']) &&
+        isValidPost(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(postId) &&
+        isValidPost(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['title', 'category', 'scope', 'cluster', 'content', 'dateIso', 'pinned', 'imageData', 'allowedEmails', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(postId);
+    }
+
+    match /complaints/{complaintId} {
+      allow get: if isSignedIn() && isValidId(complaintId) && (isAdmin() || existing().userId == request.auth.uid);
+      allow list: if isSignedIn() && (isAdmin() || existing().userId == request.auth.uid);
+
+      allow create: if isSignedIn() &&
+        isValidId(complaintId) &&
+        incoming().userId == request.auth.uid &&
+        incoming().status == 'Chờ xử lý' &&
+        incoming().keys().hasAll(['userId', 'userEmail', 'senderName', 'subject', 'content', 'dateIso', 'status', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['userId', 'userEmail', 'senderName', 'householdId', 'subject', 'content', 'dateIso', 'status', 'createdAt', 'updatedAt']) &&
+        isValidComplaint(incoming());
+
+      allow update: if isAdmin() &&
+        isValidId(complaintId) &&
+        isValidComplaint(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if isAdmin() && isValidId(complaintId);
+    }
+
+    match /settings/{settingId} {
+      allow get: if isSignedIn() && settingId == 'portal';
+      allow list: if false;
+      allow create, update: if isAdmin() && settingId == 'portal' &&
+        incoming().keys().hasAll(['title', 'slogan', 'themeKey', 'fontSize', 'updatedAt']) &&
+        incoming().keys().hasOnly(['title', 'slogan', 'themeKey', 'fontSize', 'updatedAt']) &&
+        isValidPortalSettings(incoming());
+      allow delete: if false;
+    }
+  }
+}
