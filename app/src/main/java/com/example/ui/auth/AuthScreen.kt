@@ -1,9 +1,14 @@
 package com.example.ui.auth
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.pm.PackageManager
+import android.os.Build
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,6 +35,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.HomeWork
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -46,9 +54,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -76,9 +86,11 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialCancellationException
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.credentials.exceptions.NoCredentialException
 import com.example.R
 import com.example.data.model.PendingCitizenCredentials
+import java.security.MessageDigest
 import com.example.ui.theme.PortalTheme
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
@@ -92,6 +104,35 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+
+private const val EXPECTED_FIREBASE_SHA1 =
+    "D4:A4:7F:5A:11:9B:33:30:56:96:AE:2A:60:9B:0D:BF:6F:66:27:9E"
+
+@Suppress("DEPRECATION")
+private fun getAppSigningSha1(context: Context): String {
+    return runCatching {
+        val pm = context.packageManager
+        val pkgName = context.packageName
+        val signatureBytes: ByteArray? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val info = pm.getPackageInfo(pkgName, PackageManager.GET_SIGNING_CERTIFICATES)
+            val signingInfo = info.signingInfo
+            val certs = if (signingInfo?.hasMultipleSigners() == true) {
+                signingInfo.apkContentsSigners
+            } else {
+                signingInfo?.signingCertificateHistory
+            }
+            certs?.firstOrNull()?.toByteArray()
+        } else {
+            val info = pm.getPackageInfo(pkgName, PackageManager.GET_SIGNATURES)
+            info.signatures?.firstOrNull()?.toByteArray()
+        }
+        signatureBytes?.let { bytes ->
+            MessageDigest.getInstance("SHA-1")
+                .digest(bytes)
+                .joinToString(":") { "%02X".format(it) }
+        }.orEmpty()
+    }.getOrDefault("")
+}
 
 private tailrec fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
@@ -178,11 +219,37 @@ fun onGoogleSignInClicked(
             }
         } catch (e: GetCredentialCancellationException) {
             Log.w("Auth", "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
-            onAuthCancelled()
+            val installedSha1 = getAppSigningSha1(context)
+            val detail = e.errorMessage?.toString()?.trim().orEmpty()
+            if (installedSha1.isNotBlank() && !installedSha1.equals(EXPECTED_FIREBASE_SHA1, ignoreCase = true)) {
+                onAuthError(
+                    "Không thể hoàn tất đăng nhập Google vì mã SHA-1 của bản APK này ($installedSha1) chưa được thêm vào Firebase Console (project gen-lang-client-0789931015). Vui lòng sao chép mã SHA-1 bên dưới và thêm vào Firebase."
+                )
+            } else if (detail.isNotBlank()) {
+                onAuthError("Chưa hoàn tất đăng nhập Google ($detail).")
+            } else {
+                onAuthCancelled()
+            }
         } catch (e: NoCredentialException) {
             Log.w("Auth", "No Google account credential available on device: ${e.message}", e)
+            val installedSha1 = getAppSigningSha1(context)
+            val shaHint = if (installedSha1.isNotBlank() && !installedSha1.equals(EXPECTED_FIREBASE_SHA1, ignoreCase = true)) {
+                " Lưu ý: Bản APK này có SHA-1 ($installedSha1) khác với cấu hình Firebase mặc định — hãy thêm SHA-1 này vào Firebase Console."
+            } else {
+                ""
+            }
             onAuthError(
-                "Thiết bị hiện chưa có tài khoản Google khả dụng. Để sử dụng phiên bản đám mây không cần tài khoản Google, quản trị viên cần bật thêm phương thức đăng nhập tương ứng trên Firebase Console."
+                "Thiết bị hiện chưa lấy được thông tin tài khoản Google khả dụng.$shaHint"
+            )
+        } catch (e: GetCredentialException) {
+            Log.e("Auth", "CredentialManager error [${e.type}]: ${e.errorMessage}", e)
+            val installedSha1 = getAppSigningSha1(context)
+            val rawMsg = e.errorMessage?.toString()?.trim().orEmpty().ifBlank { e.localizedMessage.orEmpty() }
+            val shaNote = if (installedSha1.isNotBlank() && !installedSha1.equals(EXPECTED_FIREBASE_SHA1, ignoreCase = true)) {
+                "\nMã SHA-1 bản cài đặt: $installedSha1 (cần thêm vào Firebase Console)."
+            } else ""
+            onAuthError(
+                "Đăng nhập Google thất bại${if (rawMsg.isNotBlank()) ": $rawMsg" else " (${e.type})"}.$shaNote"
             )
         } catch (e: Exception) {
             Log.e("Auth", "Google Sign-In failed", e)
@@ -229,6 +296,10 @@ fun AuthScreen(
     var showCitizenPassword by remember { mutableStateOf(false) }
     var isCitizenConnecting by remember { mutableStateOf(false) }
     var citizenErrorMessage by remember { mutableStateOf<String?>(null) }
+    val appSha1 = remember(context) { getAppSigningSha1(context) }
+    val sha1Mismatch = appSha1.isNotBlank() && !appSha1.equals(EXPECTED_FIREBASE_SHA1, ignoreCase = true)
+    var showSha1Helper by remember(sha1Mismatch) { mutableStateOf(sha1Mismatch) }
+    var sha1Copied by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         attemptAutoSignIn(
@@ -624,6 +695,85 @@ fun AuthScreen(
                                 Icon(Icons.Filled.PersonPin, contentDescription = null, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
                                 Text("Đăng nhập bằng SĐT / Mã định danh", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+
+                if (appSha1.isNotBlank()) {
+                    Card(
+                        shape = MaterialTheme.shapes.medium,
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (sha1Mismatch) semColors.amberBg else MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            TextButton(
+                                onClick = { showSha1Helper = !showSha1Helper },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .minimumInteractiveComponentSize(),
+                            ) {
+                                Text(
+                                    text = if (sha1Mismatch) {
+                                        "APK cài ngoài cần thêm SHA-1 vào Firebase để đăng nhập"
+                                    } else {
+                                        "Thông tin chữ ký ứng dụng (SHA-1)"
+                                    },
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (sha1Mismatch) semColors.amberText else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Icon(
+                                    imageVector = if (showSha1Helper) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    contentDescription = null,
+                                )
+                            }
+                            AnimatedVisibility(visible = showSha1Helper) {
+                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(
+                                        text = if (sha1Mismatch) {
+                                            "Bản APK này được ký bằng khóa khác (thường gặp khi build trên GitHub chưa có tệp keystore). Hãy sao chép mã SHA-1 dưới đây và thêm vào Firebase Console → Project Settings → Ứng dụng Android (com.aistudio.longan.kdcxmp) → Add fingerprint."
+                                        } else {
+                                            "Mã SHA-1 hiện tại của bản cài đặt đã khớp với cấu hình Firebase."
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Surface(
+                                        shape = MaterialTheme.shapes.small,
+                                        color = MaterialTheme.colorScheme.surface,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Text(
+                                            text = appSha1,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(10.dp),
+                                        )
+                                    }
+                                    OutlinedButton(
+                                        onClick = {
+                                            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                                            cm?.setPrimaryClip(ClipData.newPlainText("APK SHA-1", appSha1))
+                                            sha1Copied = true
+                                        },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .minimumInteractiveComponentSize(),
+                                    ) {
+                                        Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text(if (sha1Copied) "Đã sao chép mã SHA-1" else "Sao chép mã SHA-1")
+                                    }
+                                }
                             }
                         }
                     }
