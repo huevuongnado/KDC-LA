@@ -912,7 +912,7 @@ fun SettingsDialog(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Text("Ảnh bìa (máy này)", style = MaterialTheme.typography.labelMedium)
+                        Text("Ảnh nền / Ảnh bìa (máy này)", style = MaterialTheme.typography.labelMedium)
                         OutlinedButton(
                             onClick = {
                                 coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -921,12 +921,12 @@ fun SettingsDialog(
                         ) {
                             Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Chọn ảnh bìa")
+                            Text("Chọn ảnh nền")
                         }
                         if (coverPath.isNotBlank() && File(coverPath).exists()) {
                             Image(
                                 painter = rememberAsyncImagePainter(File(coverPath)),
-                                contentDescription = "Xem trước ảnh bìa",
+                                contentDescription = "Xem trước ảnh nền",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -934,7 +934,7 @@ fun SettingsDialog(
                                     .clip(RoundedCornerShape(10.dp)),
                             )
                             TextButton(onClick = { coverPath = "" }) {
-                                Text("Gỡ ảnh bìa")
+                                Text("Gỡ ảnh nền")
                             }
                         }
                     }

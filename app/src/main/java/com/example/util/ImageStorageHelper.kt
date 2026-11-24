@@ -21,8 +21,8 @@ object ImageStorageHelper {
         context: Context,
         sourceUri: Uri,
         prefix: String,
-        maxDimension: Int = 1200,
-        quality: Int = 72,
+        maxDimension: Int = 1600,
+        quality: Int = 90,
     ): String? = withContext(Dispatchers.IO) {
         runCatching {
             val bitmap = decodeScaledBitmap(context, sourceUri, maxDimension) ?: return@runCatching null

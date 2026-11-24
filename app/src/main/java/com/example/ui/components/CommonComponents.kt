@@ -63,8 +63,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
@@ -90,6 +92,13 @@ fun PortalHeader(
     val brandColor = preset.headerStart
     val brandSecondary = preset.headerEnd
     val hasCover = settings.coverPath.isNotBlank() && File(settings.coverPath).exists()
+    val coverTextShadow = if (hasCover) {
+        Shadow(
+            color = Color.Black.copy(alpha = 0.78f),
+            offset = Offset(0f, 1.5f),
+            blurRadius = 4f,
+        )
+    } else null
 
     Box(
         modifier = modifier
@@ -103,15 +112,10 @@ fun PortalHeader(
         if (hasCover) {
             Image(
                 painter = rememberAsyncImagePainter(File(settings.coverPath)),
-                contentDescription = "Ảnh bìa Nhà văn hóa thôn",
+                contentDescription = "Ảnh nền Nhà văn hóa thôn",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize(),
-                alpha = 0.22f,
-            )
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(brandColor.copy(alpha = 0.78f))
+                alpha = 1f,
             )
         }
 
@@ -130,8 +134,10 @@ fun PortalHeader(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White.copy(alpha = 0.16f))
-                        .border(1.dp, Color.White.copy(alpha = 0.30f), RoundedCornerShape(12.dp)),
+                        .background(
+                            if (hasCover) Color.Black.copy(alpha = 0.35f) else Color.White.copy(alpha = 0.16f)
+                        )
+                        .border(1.dp, Color.White.copy(alpha = 0.40f), RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     val hasLogo = settings.logoPath.isNotBlank() && File(settings.logoPath).exists()
@@ -161,19 +167,19 @@ fun PortalHeader(
                     ) {
                         Text(
                             text = "CỔNG THÔNG TIN TRỰC TUYẾN",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.90f),
+                            style = MaterialTheme.typography.labelSmall.copy(shadow = coverTextShadow),
+                            color = Color.White.copy(alpha = 0.95f),
                         )
                         Icon(
                             imageVector = Icons.Filled.CloudDone,
                             contentDescription = "Đồng bộ trực tuyến",
-                            tint = Color.White.copy(alpha = 0.90f),
+                            tint = Color.White.copy(alpha = 0.95f),
                             modifier = Modifier.size(14.dp),
                         )
                     }
                     Text(
                         text = settings.title,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.titleMedium.copy(shadow = coverTextShadow),
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         maxLines = 2,
@@ -181,8 +187,8 @@ fun PortalHeader(
                     )
                     Text(
                         text = "Quản lý Khu dân cư & Thông tin Tuyên truyền",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.85f),
+                        style = MaterialTheme.typography.bodySmall.copy(shadow = coverTextShadow),
+                        color = Color.White.copy(alpha = 0.92f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
@@ -191,12 +197,12 @@ fun PortalHeader(
                 OutlinedButton(
                     onClick = onLogoutClick,
                     colors = ButtonDefaults.outlinedButtonColors(
-                        containerColor = Color.White.copy(alpha = 0.14f),
+                        containerColor = if (hasCover) Color.Black.copy(alpha = 0.36f) else Color.White.copy(alpha = 0.14f),
                         contentColor = Color.White,
                     ),
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
-                        Color.White.copy(alpha = 0.38f),
+                        Color.White.copy(alpha = 0.45f),
                     ),
                     modifier = Modifier
                         .minimumInteractiveComponentSize()
@@ -222,7 +228,7 @@ fun PortalHeader(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = Color.White.copy(alpha = 0.16f),
+                    color = if (hasCover) Color.Black.copy(alpha = 0.36f) else Color.White.copy(alpha = 0.16f),
                     onClick = onAccountClick,
                     modifier = Modifier.weight(1f, fill = false),
                 ) {
@@ -257,12 +263,15 @@ fun PortalHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
-                    .background(Color.White.copy(alpha = 0.10f), RoundedCornerShape(8.dp))
+                    .background(
+                        color = if (hasCover) Color.Black.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(8.dp),
+                    )
                     .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Text(
                     text = settings.slogan,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(shadow = coverTextShadow),
                     color = Color.White,
                     maxLines = 1,
                     modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE),
