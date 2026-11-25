@@ -189,13 +189,25 @@ test("Bootstrapped admin can CRUD households, people, posts, settings, and add s
     })
   );
 
-  // Add secondary admin and verify they can read households
+  // Add secondary admin with official roleTitle and verify they can read households
   await assertSucceeds(
     db.collection("admins").doc(SECOND_ADMIN_UID).set({
       userId: SECOND_ADMIN_UID,
       email: SECOND_ADMIN_EMAIL,
+      displayName: "Nguyễn Văn Bí Thư",
+      roleTitle: "Bí thư Chi bộ",
       addedBy: ADMIN_UID,
       createdAt: past,
+    })
+  );
+  await assertSucceeds(
+    db.collection("admins").doc(SECOND_ADMIN_UID).update({
+      roleTitle: "Trưởng Ban công tác Mặt trận",
+    })
+  );
+  await assertFails(
+    db.collection("admins").doc(SECOND_ADMIN_UID).update({
+      ghostField: "hack",
     })
   );
   const secondAdminDb = citizenContext(SECOND_ADMIN_UID, SECOND_ADMIN_EMAIL, true).firestore();

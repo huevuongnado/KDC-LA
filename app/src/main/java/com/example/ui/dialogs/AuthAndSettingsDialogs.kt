@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LockReset
@@ -85,13 +86,22 @@ import com.example.util.PasswordHashHelper
 import kotlinx.coroutines.launch
 import java.io.File
 
+private data class DelegatedAccountItem(
+    val uid: String,
+    val email: String,
+    val displayName: String,
+    val roleTitle: String,
+    val isBootstrap: Boolean,
+)
+
 @Composable
 fun AccountAndRolesDialog(
     session: UserSession?,
     admins: List<AdminRecordDoc>,
     knownUsers: List<UserProfileDoc>,
     onDismiss: () -> Unit,
-    onGrantAdmin: (String) -> Unit,
+    onGrantAdmin: (email: String, roleTitle: String) -> Unit,
+    onUpdateAdminRoleTitle: (uid: String, email: String, displayName: String, roleTitle: String) -> Unit,
     onRevokeAdmin: (String) -> Unit,
     onOpenChangeOwnPassword: () -> Unit,
     onOpenCitizenLogin: () -> Unit,
@@ -99,7 +109,46 @@ fun AccountAndRolesDialog(
     onLogout: () -> Unit,
 ) {
     var targetEmail by remember { mutableStateOf("") }
+    var selectedRoleTitle by remember { mutableStateOf(DomainConstants.OFFICIAL_ROLE_TITLES.first()) }
+    var editingRoleTarget by remember { mutableStateOf<DelegatedAccountItem?>(null) }
+    var editingRoleValue by remember { mutableStateOf(DomainConstants.OFFICIAL_ROLE_TITLES.first()) }
     val semColors = PortalTheme.colors
+
+    val delegatedAccounts = remember(admins, knownUsers, session) {
+        val bootstrapEmail = DomainConstants.BOOTSTRAP_ADMIN_EMAIL.lowercase()
+        val bootstrapDoc = admins.firstOrNull { it.email.trim().lowercase() == bootstrapEmail }
+        val bootstrapUser = knownUsers.firstOrNull { it.email.trim().lowercase() == bootstrapEmail }
+        val bootstrapUid = bootstrapDoc?.userId?.takeIf { it.isNotBlank() }
+            ?: bootstrapUser?.userId?.takeIf { it.isNotBlank() }
+            ?: if (session?.email?.trim()?.lowercase() == bootstrapEmail) session.id else ""
+        val bootstrapItem = DelegatedAccountItem(
+            uid = bootstrapUid,
+            email = DomainConstants.BOOTSTRAP_ADMIN_EMAIL,
+            displayName = bootstrapDoc?.displayName?.takeIf { it.isNotBlank() }
+                ?: bootstrapUser?.name?.takeIf { it.isNotBlank() }
+                ?: "Quản trị gốc (Thôn Long An)",
+            roleTitle = bootstrapDoc?.roleTitle?.takeIf { it.isNotBlank() } ?: "Trưởng thôn",
+            isBootstrap = true,
+        )
+        val otherAdmins = admins
+            .filter { it.email.trim().lowercase() != bootstrapEmail }
+            .sortedWith(compareBy<AdminRecordDoc> { it.roleTitle }.thenBy { it.email })
+            .map { admin ->
+                val matchedUser = knownUsers.firstOrNull { u ->
+                    u.userId == admin.userId || u.email.equals(admin.email, ignoreCase = true)
+                }
+                DelegatedAccountItem(
+                    uid = admin.userId,
+                    email = admin.email,
+                    displayName = admin.displayName.takeIf { it.isNotBlank() }
+                        ?: matchedUser?.name?.takeIf { it.isNotBlank() }
+                        ?: admin.email.substringBefore("@"),
+                    roleTitle = admin.roleTitle.takeIf { it.isNotBlank() } ?: "Trưởng thôn",
+                    isBootstrap = false,
+                )
+            }
+        listOf(bootstrapItem) + otherAdmins
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -157,7 +206,11 @@ fun AccountAndRolesDialog(
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 StatusPill(
-                                    text = session.role.displayLabel,
+                                    text = if (session.isAdmin && session.roleTitle.isNotBlank()) {
+                                        session.roleTitle
+                                    } else {
+                                        session.role.displayLabel
+                                    },
                                     backgroundColor = if (session.isAdmin) semColors.amberBg else semColors.infoBg,
                                     textColor = if (session.isAdmin) semColors.amberText else semColors.infoText,
                                 )
@@ -185,68 +238,172 @@ fun AccountAndRolesDialog(
                             tint = MaterialTheme.colorScheme.primary,
                         )
                         Text(
-                            text = "Cấp quyền Ban điều hành (Trưởng / Phó thôn)",
+                            text = "Danh sách tài khoản đã được phân quyền (${delegatedAccounts.size})",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                         )
                     }
+
+                    delegatedAccounts.forEach { item ->
+                        Surface(
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surfaceContainerLow,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    ) {
+                                        Text(
+                                            text = item.displayName,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        if (item.isBootstrap) {
+                                            StatusPill(
+                                                text = "Quản trị gốc",
+                                                backgroundColor = semColors.infoBg,
+                                                textColor = semColors.infoText,
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = item.email,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    StatusPill(
+                                        text = item.roleTitle,
+                                        backgroundColor = semColors.amberBg,
+                                        textColor = semColors.amberText,
+                                    )
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (item.uid.isNotBlank()) {
+                                        IconButton(
+                                            onClick = {
+                                                editingRoleTarget = item
+                                                editingRoleValue = item.roleTitle.takeIf {
+                                                    it in DomainConstants.OFFICIAL_ROLE_TITLES
+                                                } ?: DomainConstants.OFFICIAL_ROLE_TITLES.first()
+                                            },
+                                            modifier = Modifier.minimumInteractiveComponentSize(),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Edit,
+                                                contentDescription = "Đổi chức danh ${item.email}",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    }
+                                    if (!item.isBootstrap && item.uid.isNotBlank()) {
+                                        IconButton(
+                                            onClick = { onRevokeAdmin(item.uid) },
+                                            modifier = Modifier.minimumInteractiveComponentSize(),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Delete,
+                                                contentDescription = "Thu hồi quyền ${item.email}",
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalDivider()
                     Text(
-                        text = "Nhập email Google của cán bộ thôn (người đó cần mở app và đăng nhập Google 1 lần trước).",
+                        text = "Cấp quyền Ban chi ủy, Ban thôn & Chi hội đoàn thể",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Nên phân quyền cho Bí thư Chi bộ, Trưởng thôn, Phó thôn, Trưởng Ban công tác Mặt trận và các Chi hội trưởng (Phụ nữ, Nông dân, Cựu chiến binh, Thanh niên, Người cao tuổi...). Người được cấp cần mở app và đăng nhập Google 1 lần trước.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+
+                    val nonAdminUsers = remember(knownUsers, delegatedAccounts) {
+                        val existingAdminEmails = delegatedAccounts.map { it.email.trim().lowercase() }.toSet()
+                        knownUsers.filter { u ->
+                            u.email.isNotBlank() && u.email.trim().lowercase() !in existingAdminEmails
+                        }
+                    }
+                    if (nonAdminUsers.isNotEmpty()) {
+                        val quickOptions = remember(nonAdminUsers) {
+                            listOf("") + nonAdminUsers.map { it.email }
+                        }
+                        PortalDropdownField(
+                            label = "Chọn nhanh từ tài khoản đã đăng nhập",
+                            selectedValue = if (targetEmail in nonAdminUsers.map { it.email }) targetEmail else "",
+                            options = quickOptions,
+                            displayMapper = { email ->
+                                if (email.isBlank()) {
+                                    "-- Chọn cán bộ đã đăng nhập --"
+                                } else {
+                                    val user = nonAdminUsers.firstOrNull { it.email == email }
+                                    if (user != null) "${user.name} (${user.email})" else email
+                                }
+                            },
+                            onSelected = { pickedEmail ->
+                                if (pickedEmail.isNotBlank()) {
+                                    targetEmail = pickedEmail
+                                }
+                            },
+                        )
+                    }
+
                     OutlinedTextField(
                         value = targetEmail,
                         onValueChange = { targetEmail = it },
                         label = { Text("Email Google cần cấp quyền") },
                         placeholder = { Text("canbo@gmail.com") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("grant_admin_email_input"),
+                    )
+                    PortalDropdownField(
+                        label = "Chức danh phân quyền",
+                        selectedValue = selectedRoleTitle,
+                        options = DomainConstants.OFFICIAL_ROLE_TITLES,
+                        onSelected = { selectedRoleTitle = it },
                     )
                     Button(
                         onClick = {
-                            onGrantAdmin(targetEmail)
+                            onGrantAdmin(targetEmail, selectedRoleTitle)
                             targetEmail = ""
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .minimumInteractiveComponentSize(),
+                            .minimumInteractiveComponentSize()
+                            .testTag("grant_admin_button"),
                     ) {
                         Icon(Icons.Filled.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
                         Text("Cấp quyền quản trị")
                     }
 
-                    if (admins.isNotEmpty()) {
-                        Text(
-                            text = "Danh sách quản trị viên bổ sung",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        admins.forEach { admin ->
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = admin.email,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                IconButton(onClick = { onRevokeAdmin(admin.userId) }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = "Thu hồi quyền ${admin.email}",
-                                        tint = MaterialTheme.colorScheme.error,
-                                    )
-                                }
-                            }
+                    val citizenUsers = remember(knownUsers, delegatedAccounts) {
+                        val adminEmails = delegatedAccounts.map { it.email.trim().lowercase() }.toSet()
+                        knownUsers.filter {
+                            it.role != "admin" &&
+                                it.email.isNotBlank() &&
+                                it.email.trim().lowercase() !in adminEmails
                         }
-                    }
-
-                    val citizenUsers = remember(knownUsers) {
-                        knownUsers.filter { it.role != "admin" && it.email.isNotBlank() }
                     }
                     if (citizenUsers.isNotEmpty()) {
                         Text(
@@ -326,6 +483,48 @@ fun AccountAndRolesDialog(
                 }
             }
         }
+    }
+
+    editingRoleTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { editingRoleTarget = null },
+            title = { Text("Cập nhật chức danh") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "${target.displayName} (${target.email})",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    PortalDropdownField(
+                        label = "Chức danh phân quyền",
+                        selectedValue = editingRoleValue,
+                        options = DomainConstants.OFFICIAL_ROLE_TITLES,
+                        onSelected = { editingRoleValue = it },
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onUpdateAdminRoleTitle(
+                            target.uid,
+                            target.email,
+                            target.displayName,
+                            editingRoleValue,
+                        )
+                        editingRoleTarget = null
+                    },
+                ) {
+                    Text("Lưu chức danh")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingRoleTarget = null }) {
+                    Text("Hủy")
+                }
+            },
+        )
     }
 }
 

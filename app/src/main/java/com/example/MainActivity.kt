@@ -456,7 +456,10 @@ private fun ThonLongAnApp(
             admins = uiState.admins,
             knownUsers = uiState.knownUsers,
             onDismiss = { viewModel.closeDialog() },
-            onGrantAdmin = { email -> viewModel.grantAdminByEmail(email) },
+            onGrantAdmin = { email, roleTitle -> viewModel.grantAdminByEmail(email, roleTitle) },
+            onUpdateAdminRoleTitle = { uid, email, name, roleTitle ->
+                viewModel.updateAdminRoleTitle(uid, email, name, roleTitle)
+            },
             onRevokeAdmin = { targetUid -> viewModel.revokeAdmin(targetUid) },
             onOpenChangeOwnPassword = { viewModel.openDialog(ActiveDialog.ChangeOwnPassword) },
             onOpenCitizenLogin = { viewModel.openCitizenLoginPrompt() },

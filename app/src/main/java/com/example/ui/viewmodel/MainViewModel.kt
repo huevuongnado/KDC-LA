@@ -175,6 +175,9 @@ class MainViewModel(
     private val isAdminFlow = repository.observeIsAdmin()
         .asStreamSlice("Không thể kiểm tra quyền quản trị.")
 
+    private val myAdminRecordFlow = repository.observeMyAdminRecord()
+        .catch { emit(null) }
+
     private val userProfileFlow = repository.observeUserProfile()
         .asStreamSlice("Không thể tải hồ sơ người dùng.")
 
@@ -248,12 +251,21 @@ class MainViewModel(
 
     private val authAndSettingsBundle = combine(
         isAdminFlow,
+        myAdminRecordFlow,
         userProfileFlow,
         myCitizenAccountFlow,
         settingsFlow,
         isProfileInitializedFlow,
-    ) { adminSlice, profileSlice, citizenAccountSlice, settingsSlice, initialized ->
-        AuthBundle(adminSlice, profileSlice, citizenAccountSlice, settingsSlice, initialized)
+    ) { values ->
+        @Suppress("UNCHECKED_CAST")
+        AuthBundle(
+            adminSlice = values[0] as StreamSlice<Boolean>,
+            myAdminRecord = values[1] as AdminRecordDoc?,
+            profileSlice = values[2] as StreamSlice<UserProfileDoc?>,
+            citizenAccountSlice = values[3] as StreamSlice<CitizenAccountDoc?>,
+            settingsSlice = values[4] as StreamSlice<PortalSettings>,
+            initialized = values[5] as Boolean,
+        )
     }
 
     private val domainDataBundle = combine(
@@ -335,6 +347,13 @@ class MainViewModel(
             ?: profile?.cluster?.takeIf { it.isNotBlank() }
             ?: households.firstOrNull { it.id == linkedHouseholdId }?.cluster.orEmpty()
 
+        val resolvedRoleTitle = when {
+            !isAdmin -> ""
+            !authBundle.myAdminRecord?.roleTitle.isNullOrBlank() -> authBundle.myAdminRecord?.roleTitle.orEmpty()
+            else -> admins.firstOrNull { it.userId == currentUserId }?.roleTitle
+                ?.takeIf { it.isNotBlank() } ?: "Trưởng thôn"
+        }
+
         val session = UserSession(
             id = currentUserId,
             email = currentUserEmail,
@@ -342,6 +361,7 @@ class MainViewModel(
                 ?: profile?.name?.takeIf { it.isNotBlank() }
                 ?: currentUserName.ifBlank { currentUserEmail },
             role = if (isAdmin) UserRole.ADMIN else UserRole.CITIZEN,
+            roleTitle = resolvedRoleTitle,
             householdId = linkedHouseholdId,
             cluster = linkedCluster,
             phone = myCitizenAccount?.phone?.takeIf { it.isNotBlank() } ?: profile?.phone.orEmpty(),
@@ -703,9 +723,27 @@ class MainViewModel(
     }
 
     // Admin Access Management
-    fun grantAdminByEmail(email: String) {
+    fun grantAdminByEmail(email: String, roleTitle: String) {
         viewModelScope.launch {
-            handleResult(repository.grantAdminByEmail(email, uiState.value.knownUsers))
+            handleResult(repository.grantAdminByEmail(email, roleTitle, uiState.value.knownUsers))
+        }
+    }
+
+    fun updateAdminRoleTitle(
+        targetUid: String,
+        targetEmail: String,
+        displayName: String,
+        roleTitle: String,
+    ) {
+        viewModelScope.launch {
+            handleResult(
+                repository.updateAdminRoleTitle(
+                    targetUid = targetUid,
+                    targetEmail = targetEmail,
+                    displayName = displayName,
+                    newRoleTitle = roleTitle,
+                )
+            )
         }
     }
 
@@ -780,6 +818,7 @@ class MainViewModel(
 
     private data class AuthBundle(
         val adminSlice: StreamSlice<Boolean>,
+        val myAdminRecord: AdminRecordDoc?,
         val profileSlice: StreamSlice<UserProfileDoc?>,
         val citizenAccountSlice: StreamSlice<CitizenAccountDoc?>,
         val settingsSlice: StreamSlice<PortalSettings>,

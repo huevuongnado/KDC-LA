@@ -101,6 +101,33 @@ class CommunityRepository(
         )
     }
 
+    fun observeMyAdminRecord(): Flow<AdminRecordDoc?> = flow {
+        val uid = requireUserId()
+        emitAll(
+            db.collection("admins").document(uid)
+                .snapshots()
+                .map { snapshot ->
+                    if (snapshot.exists()) {
+                        snapshot.toObject(
+                            AdminRecordDoc::class.java,
+                            DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                        )
+                    } else null
+                }
+                .catch { error ->
+                    val fe = generateSequence(error) { it.cause }
+                        .filterIsInstance<FirebaseFirestoreException>()
+                        .firstOrNull()
+                    if (fe?.code == FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                        emit(null)
+                    } else {
+                        if (fe == null && error is CancellationException) throw error
+                        throw error
+                    }
+                }
+        )
+    }
+
     fun observeUserProfile(): Flow<UserProfileDoc?> = flow {
         val uid = requireUserId()
         val path = "users/$uid"
@@ -1636,7 +1663,11 @@ class CommunityRepository(
     }
 
     // --- Admin Management ---
-    suspend fun grantAdminByEmail(emailInput: String, knownUsers: List<UserProfileDoc>): Result<String> {
+    suspend fun grantAdminByEmail(
+        emailInput: String,
+        roleTitle: String,
+        knownUsers: List<UserProfileDoc>,
+    ): Result<String> {
         val cleanEmail = emailInput.trim().lowercase()
         if (!cleanEmail.contains("@")) {
             return Result.failure(IllegalArgumentException("Vui lòng nhập email Google hợp lệ."))
@@ -1645,17 +1676,31 @@ class CommunityRepository(
             ?: return Result.failure(
                 IllegalStateException("Người dùng $cleanEmail cần đăng nhập ứng dụng ít nhất 1 lần trước khi được cấp quyền.")
             )
+        val cleanTitle = roleTitle.trim().ifBlank { "Trưởng thôn" }.take(100)
+        val cleanName = targetUser.name.trim().ifBlank { cleanEmail.substringBefore("@") }.take(120)
         val adminRef = db.collection("admins").document(targetUser.userId)
         return try {
             val myUid = requireUserId()
-            adminRef.set(
-                mapOf(
-                    "userId" to targetUser.userId,
-                    "email" to cleanEmail,
-                    "addedBy" to myUid,
-                    "createdAt" to FieldValue.serverTimestamp(),
-                )
-            ).await()
+            val exists = adminRef.get().await().exists()
+            if (exists) {
+                adminRef.update(
+                    mapOf(
+                        "displayName" to cleanName,
+                        "roleTitle" to cleanTitle,
+                    )
+                ).await()
+            } else {
+                adminRef.set(
+                    mapOf(
+                        "userId" to targetUser.userId,
+                        "email" to cleanEmail,
+                        "displayName" to cleanName,
+                        "roleTitle" to cleanTitle,
+                        "addedBy" to myUid,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                    )
+                ).await()
+            }
             runCatching {
                 db.collection("users").document(targetUser.userId).update(
                     mapOf(
@@ -1664,12 +1709,57 @@ class CommunityRepository(
                     )
                 ).await()
             }
-            Result.success("Đã cấp quyền Trưởng thôn cho $cleanEmail.")
+            Result.success("Đã phân quyền $cleanTitle cho $cleanName ($cleanEmail).")
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.CREATE, adminRef.path)
             Result.failure(Exception(toVietnameseFirestoreMessage(e, "Không thể cấp quyền quản trị.")))
+        }
+    }
+
+    suspend fun updateAdminRoleTitle(
+        targetUid: String,
+        targetEmail: String,
+        displayName: String,
+        newRoleTitle: String,
+    ): Result<String> {
+        val cleanUid = targetUid.trim()
+        val cleanEmail = targetEmail.trim().lowercase()
+        if (cleanUid.isBlank() || !cleanEmail.contains("@")) {
+            return Result.failure(IllegalArgumentException("Thông tin tài khoản phân quyền không hợp lệ."))
+        }
+        val cleanTitle = newRoleTitle.trim().ifBlank { "Trưởng thôn" }.take(100)
+        val cleanName = displayName.trim().ifBlank { cleanEmail.substringBefore("@") }.take(120)
+        val adminRef = db.collection("admins").document(cleanUid)
+        return try {
+            val myUid = requireUserId()
+            val exists = adminRef.get().await().exists()
+            if (exists) {
+                adminRef.update(
+                    mapOf(
+                        "displayName" to cleanName,
+                        "roleTitle" to cleanTitle,
+                    )
+                ).await()
+            } else {
+                adminRef.set(
+                    mapOf(
+                        "userId" to cleanUid,
+                        "email" to cleanEmail,
+                        "displayName" to cleanName,
+                        "roleTitle" to cleanTitle,
+                        "addedBy" to myUid,
+                        "createdAt" to FieldValue.serverTimestamp(),
+                    )
+                ).await()
+            }
+            Result.success("Đã cập nhật chức danh $cleanTitle cho $cleanName.")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, adminRef.path)
+            Result.failure(Exception(toVietnameseFirestoreMessage(e, "Không thể cập nhật chức danh.")))
         }
     }
 

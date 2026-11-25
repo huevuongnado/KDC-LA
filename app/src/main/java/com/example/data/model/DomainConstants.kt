@@ -128,6 +128,20 @@ object DomainConstants {
         "Khác",
     )
 
+    val OFFICIAL_ROLE_TITLES = listOf(
+        "Bí thư Chi bộ",
+        "Phó Bí thư Chi bộ",
+        "Trưởng thôn",
+        "Phó thôn",
+        "Trưởng Ban công tác Mặt trận",
+        "Chi hội trưởng Phụ nữ",
+        "Chi hội trưởng Nông dân",
+        "Chi hội trưởng Cựu chiến binh",
+        "Bí thư Chi đoàn Thanh niên",
+        "Chi hội Người cao tuổi",
+        "Cán bộ / Chi hội đoàn thể khác",
+    )
+
     fun shortClusterName(cluster: String): String =
         cluster.removePrefix("Cụm dân cư ").trim()
 }

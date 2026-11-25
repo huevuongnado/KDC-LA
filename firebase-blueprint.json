@@ -20,11 +20,13 @@
     },
     "AdminRecord": {
       "title": "AdminRecord",
-      "description": "Trusted admin access record keyed by Firebase Auth UID.",
+      "description": "Trusted admin access record keyed by Firebase Auth UID with official village/organization role title.",
       "type": "object",
       "properties": {
         "userId": { "type": "string" },
         "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "roleTitle": { "type": "string" },
         "addedBy": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" }
       },

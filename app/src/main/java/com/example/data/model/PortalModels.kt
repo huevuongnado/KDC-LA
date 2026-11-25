@@ -14,6 +14,7 @@ data class UserSession(
     val email: String,
     val name: String,
     val role: UserRole,
+    val roleTitle: String = "",
     val householdId: String = "",
     val cluster: String = "",
     val phone: String = "",

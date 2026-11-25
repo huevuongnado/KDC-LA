@@ -48,7 +48,7 @@ jobs:
             base64 -d debug.keystore.base64 > debug.keystore
             echo "SOURCE=repo" >> "$GITHUB_OUTPUT"
           elif [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > debug.keystore
+            printf '%s' "$KEYSTORE_B64" | tr -d '\r\n ' | base64 -d > debug.keystore
             echo "SOURCE=secret" >> "$GITHUB_OUTPUT"
           else
             keytool -genkeypair -v \
@@ -76,7 +76,11 @@ jobs:
               if printf '%s' "$GOOGLE_SERVICES_JSON" | grep -q '"project_info"'; then
                 printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
               else
-                printf '%s' "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+                printf '%s' "$GOOGLE_SERVICES_JSON" | tr -d '\r\n ' | base64 -d > app/google-services.json
+              fi
+              if ! grep -q '"project_info"' app/google-services.json; then
+                echo "Secret GOOGLE_SERVICES_JSON khong hop le. Hay dan nguyen noi dung JSON cua tep app/google-services.json." >&2
+                exit 1
               fi
             else
               echo "Thieu GitHub Secret GOOGLE_SERVICES_JSON. Vui long them noi dung tep app/google-services.json vao Repository Secrets." >&2

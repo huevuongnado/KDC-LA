@@ -48,6 +48,8 @@ data class AdminRecordDoc(
     @DocumentId val id: String = "",
     val userId: String = "",
     val email: String = "",
+    val displayName: String = "",
+    val roleTitle: String = "Trưởng thôn",
     val addedBy: String = "",
     @ServerTimestamp val createdAt: Timestamp? = null,
 )

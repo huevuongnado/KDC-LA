@@ -247,7 +247,12 @@ fun PortalHeader(
                             text = if (session == null) {
                                 "Đang kết nối..."
                             } else {
-                                "${session.name} • ${if (session.isAdmin) "Trưởng thôn" else "Bà con"}"
+                                val roleText = if (session.isAdmin) {
+                                    session.roleTitle.ifBlank { "Trưởng thôn" }
+                                } else {
+                                    "Bà con"
+                                }
+                                "${session.name} • $roleText"
                             },
                             style = MaterialTheme.typography.labelMedium,
                             color = Color.White,
@@ -311,7 +316,7 @@ fun AdminActionStrip(
                 )
                 AssistChip(
                     onClick = onOpenRoles,
-                    label = { Text("Phân quyền") },
+                    label = { Text("Phân quyền & Cán bộ") },
                     leadingIcon = {
                         Icon(Icons.Filled.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(18.dp))
                     },
