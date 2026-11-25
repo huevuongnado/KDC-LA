@@ -62,6 +62,32 @@ object DateUtils {
         return String.format(Locale.US, "%04d-%02d-%02d", y, m, d)
     }
 
+    const val ONLINE_TIMEOUT_MS = 3L * 60L * 1000L
+
+    fun isOnlineActive(
+        online: Boolean,
+        lastActiveMillis: Long?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): Boolean {
+        if (!online) return false
+        if (lastActiveMillis == null) return true
+        return (nowMillis - lastActiveMillis) <= ONLINE_TIMEOUT_MS
+    }
+
+    fun formatRelativeActivity(
+        lastActiveMillis: Long?,
+        nowMillis: Long = System.currentTimeMillis(),
+    ): String {
+        if (lastActiveMillis == null) return "Chưa ghi nhận"
+        val diff = (nowMillis - lastActiveMillis).coerceAtLeast(0L)
+        return when {
+            diff < 60_000L -> "Vừa hoạt động"
+            diff < 3_600_000L -> "Hoạt động ${diff / 60_000L} phút trước"
+            diff < 86_400_000L -> "Hoạt động ${diff / 3_600_000L} giờ trước"
+            else -> "Lần cuối: ${displayDateFormat.format(Date(lastActiveMillis))}"
+        }
+    }
+
     fun parseIsoDateToEpochMillis(dob: String?): Long? {
         if (dob.isNullOrBlank() || dob.length < 10) return null
         return runCatching {

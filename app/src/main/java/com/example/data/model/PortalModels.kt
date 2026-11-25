@@ -7,6 +7,11 @@ data class PortalSettings(
     val fontSize: Int = 15,
     val logoPath: String = "",
     val coverPath: String = "",
+    val latestVersionCode: Int = 1,
+    val latestVersionName: String = "",
+    val updateUrl: String = "",
+    val updateMessage: String = "",
+    val forceUpdate: Boolean = false,
 )
 
 data class UserSession(

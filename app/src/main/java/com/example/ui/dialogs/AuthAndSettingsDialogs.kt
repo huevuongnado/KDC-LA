@@ -1,5 +1,10 @@
 package com.example.ui.dialogs
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -7,6 +12,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +33,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
@@ -34,12 +41,15 @@ import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.LockReset
 import androidx.compose.material.icons.filled.Login
 import androidx.compose.material.icons.filled.PersonAdd
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +57,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -54,6 +65,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -72,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.rememberAsyncImagePainter
+import com.example.BuildConfig
 import com.example.data.model.AdminRecordDoc
 import com.example.data.model.DomainConstants
 import com.example.data.model.PersonDoc
@@ -82,7 +95,10 @@ import com.example.ui.components.PortalDropdownField
 import com.example.ui.components.StatusPill
 import com.example.ui.theme.PortalTheme
 import com.example.ui.theme.PortalThemePreset
+import com.example.util.DateUtils
 import com.example.util.PasswordHashHelper
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -94,11 +110,14 @@ private data class DelegatedAccountItem(
     val isBootstrap: Boolean,
 )
 
+private enum class PresenceFilter { ALL, ONLINE, OFFLINE }
+
 @Composable
 fun AccountAndRolesDialog(
     session: UserSession?,
     admins: List<AdminRecordDoc>,
     knownUsers: List<UserProfileDoc>,
+    initialFilterOnlineOnly: Boolean = false,
     onDismiss: () -> Unit,
     onGrantAdmin: (email: String, roleTitle: String) -> Unit,
     onUpdateAdminRoleTitle: (uid: String, email: String, displayName: String, roleTitle: String) -> Unit,
@@ -112,6 +131,17 @@ fun AccountAndRolesDialog(
     var selectedRoleTitle by remember { mutableStateOf(DomainConstants.OFFICIAL_ROLE_TITLES.first()) }
     var editingRoleTarget by remember { mutableStateOf<DelegatedAccountItem?>(null) }
     var editingRoleValue by remember { mutableStateOf(DomainConstants.OFFICIAL_ROLE_TITLES.first()) }
+    var presenceFilter by remember(initialFilterOnlineOnly) {
+        mutableStateOf(if (initialFilterOnlineOnly) PresenceFilter.ONLINE else PresenceFilter.ALL)
+    }
+    var userSearchQuery by remember { mutableStateOf("") }
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            nowMillis = System.currentTimeMillis()
+            delay(15_000L)
+        }
+    }
     val semColors = PortalTheme.colors
 
     val delegatedAccounts = remember(admins, knownUsers, session) {
@@ -283,11 +313,33 @@ fun AccountAndRolesDialog(
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    StatusPill(
-                                        text = item.roleTitle,
-                                        backgroundColor = semColors.amberBg,
-                                        textColor = semColors.amberText,
-                                    )
+                                    val matchedProfile = knownUsers.firstOrNull { u ->
+                                        (item.uid.isNotBlank() && u.userId == item.uid) ||
+                                            u.email.equals(item.email, ignoreCase = true)
+                                    }
+                                    Row(
+                                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        StatusPill(
+                                            text = item.roleTitle,
+                                            backgroundColor = semColors.amberBg,
+                                            textColor = semColors.amberText,
+                                        )
+                                        if (matchedProfile != null) {
+                                            val isOfficialOnline = DateUtils.isOnlineActive(
+                                                matchedProfile.online,
+                                                matchedProfile.lastActiveAt?.toDate()?.time,
+                                                nowMillis,
+                                            )
+                                            StatusPill(
+                                                text = if (isOfficialOnline) "● Đang online" else "Ngoại tuyến",
+                                                backgroundColor = if (isOfficialOnline) semColors.successBg else semColors.neutralPillBg,
+                                                textColor = if (isOfficialOnline) semColors.successText else semColors.neutralPillText,
+                                            )
+                                        }
+                                    }
                                 }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     if (item.uid.isNotBlank()) {
@@ -397,26 +449,152 @@ fun AccountAndRolesDialog(
                         Text("Cấp quyền quản trị")
                     }
 
-                    val citizenUsers = remember(knownUsers, delegatedAccounts) {
+                    val citizenUsers = remember(knownUsers, delegatedAccounts, nowMillis) {
                         val adminEmails = delegatedAccounts.map { it.email.trim().lowercase() }.toSet()
                         knownUsers.filter {
                             it.role != "admin" &&
-                                it.email.isNotBlank() &&
+                                (it.email.isNotBlank() || it.linkedPersonId.isNotBlank() || it.name.isNotBlank()) &&
                                 it.email.trim().lowercase() !in adminEmails
+                        }.sortedWith(
+                            compareByDescending<UserProfileDoc> { u ->
+                                DateUtils.isOnlineActive(u.online, u.lastActiveAt?.toDate()?.time, nowMillis)
+                            }.thenByDescending { u ->
+                                u.lastActiveAt?.toDate()?.time ?: u.updatedAt?.toDate()?.time ?: 0L
+                            }.thenBy { it.name }
+                        )
+                    }
+                    val onlineCitizenCount = remember(citizenUsers, nowMillis) {
+                        citizenUsers.count { u ->
+                            DateUtils.isOnlineActive(u.online, u.lastActiveAt?.toDate()?.time, nowMillis)
                         }
                     }
-                    if (citizenUsers.isNotEmpty()) {
-                        Text(
-                            text = "Tài khoản bà con đã đăng nhập (${citizenUsers.size})",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
+                    val offlineCitizenCount = (citizenUsers.size - onlineCitizenCount).coerceAtLeast(0)
+                    val filteredCitizenUsers = remember(citizenUsers, presenceFilter, userSearchQuery, nowMillis) {
+                        val q = userSearchQuery.trim().lowercase()
+                        citizenUsers.filter { u ->
+                            val isOnline = DateUtils.isOnlineActive(u.online, u.lastActiveAt?.toDate()?.time, nowMillis)
+                            val matchesPresence = when (presenceFilter) {
+                                PresenceFilter.ALL -> true
+                                PresenceFilter.ONLINE -> isOnline
+                                PresenceFilter.OFFLINE -> !isOnline
+                            }
+                            val matchesQuery = q.isBlank() ||
+                                u.name.lowercase().contains(q) ||
+                                u.email.lowercase().contains(q) ||
+                                u.phone.lowercase().contains(q) ||
+                                u.householdId.lowercase().contains(q)
+                            matchesPresence && matchesQuery
+                        }
+                    }
+
+                    HorizontalDivider()
+                    Text(
+                        text = "Trạng thái đăng nhập của bà con (${citizenUsers.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = "Đang online: $onlineCitizenCount • Ngoại tuyến: $offlineCitizenCount",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        FilterChip(
+                            selected = presenceFilter == PresenceFilter.ALL,
+                            onClick = { presenceFilter = PresenceFilter.ALL },
+                            label = { Text("Tất cả (${citizenUsers.size})") },
                         )
-                        citizenUsers.take(8).forEach { u ->
-                            Text(
-                                text = "• ${u.name} (${u.email}) ${if (u.householdId.isNotBlank()) "- Hộ ${u.householdId}" else "- Chưa liên kết"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        FilterChip(
+                            selected = presenceFilter == PresenceFilter.ONLINE,
+                            onClick = { presenceFilter = PresenceFilter.ONLINE },
+                            label = { Text("Đang online ($onlineCitizenCount)") },
+                        )
+                        FilterChip(
+                            selected = presenceFilter == PresenceFilter.OFFLINE,
+                            onClick = { presenceFilter = PresenceFilter.OFFLINE },
+                            label = { Text("Ngoại tuyến ($offlineCitizenCount)") },
+                        )
+                    }
+                    if (citizenUsers.size > 4) {
+                        OutlinedTextField(
+                            value = userSearchQuery,
+                            onValueChange = { userSearchQuery = it },
+                            label = { Text("Tìm bà con (tên, hộ, SĐT, email)") },
+                            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (filteredCitizenUsers.isEmpty()) {
+                        Text(
+                            text = when (presenceFilter) {
+                                PresenceFilter.ONLINE -> "Hiện chưa có bà con nào đang mở ứng dụng."
+                                PresenceFilter.OFFLINE -> "Không có tài khoản ngoại tuyến phù hợp."
+                                PresenceFilter.ALL -> "Chưa có bà con nào đăng nhập ứng dụng."
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        filteredCitizenUsers.forEach { u ->
+                            val lastActiveMs = u.lastActiveAt?.toDate()?.time ?: u.updatedAt?.toDate()?.time
+                            val isOnline = DateUtils.isOnlineActive(
+                                u.online,
+                                u.lastActiveAt?.toDate()?.time,
+                                nowMillis,
                             )
+                            Surface(
+                                shape = MaterialTheme.shapes.medium,
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(
+                                            text = u.name.ifBlank { u.email.ifBlank { "Cư dân" } },
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.weight(1f),
+                                        )
+                                        StatusPill(
+                                            text = if (isOnline) "● Đang online" else "Ngoại tuyến",
+                                            backgroundColor = if (isOnline) semColors.successBg else semColors.neutralPillBg,
+                                            textColor = if (isOnline) semColors.successText else semColors.neutralPillText,
+                                        )
+                                    }
+                                    val contactLine = listOfNotNull(
+                                        u.householdId.takeIf { it.isNotBlank() }?.let { "Hộ $it" } ?: "Chưa liên kết hộ",
+                                        u.phone.takeIf { it.isNotBlank() },
+                                        u.email.takeIf { it.isNotBlank() },
+                                    ).joinToString(" • ")
+                                    Text(
+                                        text = contactLine,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        text = if (isOnline) {
+                                            "Đang sử dụng ứng dụng"
+                                        } else {
+                                            DateUtils.formatRelativeActivity(lastActiveMs, nowMillis)
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isOnline) semColors.successText else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -465,6 +643,11 @@ fun AccountAndRolesDialog(
                 }
 
                 HorizontalDivider()
+                Text(
+                    text = "Phiên bản đang cài: v${BuildConfig.VERSION_NAME} (mã ${BuildConfig.VERSION_CODE})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedButton(
                     onClick = {
                         onDismiss()
@@ -966,6 +1149,17 @@ fun SettingsDialog(
     var fontSize by remember { mutableIntStateOf(initialSettings.fontSize) }
     var logoPath by remember { mutableStateOf(initialSettings.logoPath) }
     var coverPath by remember { mutableStateOf(initialSettings.coverPath) }
+    var latestVersionCodeInput by remember {
+        mutableStateOf(
+            initialSettings.latestVersionCode.coerceAtLeast(BuildConfig.VERSION_CODE).toString()
+        )
+    }
+    var latestVersionName by remember {
+        mutableStateOf(initialSettings.latestVersionName.ifBlank { BuildConfig.VERSION_NAME })
+    }
+    var updateUrl by remember { mutableStateOf(initialSettings.updateUrl) }
+    var updateMessage by remember { mutableStateOf(initialSettings.updateMessage) }
+    var forceUpdate by remember { mutableStateOf(initialSettings.forceUpdate) }
 
     val logoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -1139,6 +1333,115 @@ fun SettingsDialog(
                     }
                 }
 
+                HorizontalDivider()
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SystemUpdate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = "Yêu cầu cập nhật ứng dụng cho bà con",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+                Text(
+                    text = "Phiên bản đang cài trên máy bạn: v${BuildConfig.VERSION_NAME} (mã ${BuildConfig.VERSION_CODE}). Khi tăng mã phiên bản mới và điền liên kết tải (VD: link GitHub Releases), bà con mở app sẽ tự động nhận được thông báo cập nhật ngay.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedTextField(
+                        value = latestVersionCodeInput,
+                        onValueChange = { input ->
+                            latestVersionCodeInput = input.filter { it.isDigit() }
+                        },
+                        label = { Text("Mã phiên bản mới") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = latestVersionName,
+                        onValueChange = { latestVersionName = it },
+                        label = { Text("Tên bản (VD: 1.2)") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                FilledTonalButton(
+                    onClick = {
+                        val currentTarget = latestVersionCodeInput.toIntOrNull() ?: BuildConfig.VERSION_CODE
+                        val nextCode = maxOf(currentTarget, BuildConfig.VERSION_CODE) + 1
+                        latestVersionCodeInput = nextCode.toString()
+                        if (latestVersionName.isBlank() || latestVersionName == BuildConfig.VERSION_NAME) {
+                            latestVersionName = "1.$nextCode"
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize(),
+                ) {
+                    Icon(Icons.Filled.SystemUpdate, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Tăng +1 mã phiên bản mới để nhắc bà con cập nhật")
+                }
+
+                OutlinedTextField(
+                    value = updateUrl,
+                    onValueChange = { updateUrl = it },
+                    label = { Text("Liên kết tải bản cập nhật (https://...)") },
+                    placeholder = { Text("https://github.com/ten-tai-khoan/KDC-LA/releases/latest") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings_update_url_input"),
+                )
+
+                OutlinedTextField(
+                    value = updateMessage,
+                    onValueChange = { updateMessage = it },
+                    label = { Text("Nội dung thay đổi / nâng cấp") },
+                    placeholder = { Text("VD: Bổ sung khảo sát hộ, trạng thái online, sửa lỗi đăng nhập...") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Bắt buộc cập nhật mới dùng tiếp",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "Nếu bật, bà con phải bấm cập nhật mới vào tiếp ứng dụng.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = forceUpdate,
+                        onCheckedChange = { forceUpdate = it },
+                    )
+                }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End,
@@ -1157,6 +1460,11 @@ fun SettingsDialog(
                                     fontSize = fontSize,
                                     logoPath = logoPath,
                                     coverPath = coverPath,
+                                    latestVersionCode = (latestVersionCodeInput.toIntOrNull() ?: 1).coerceAtLeast(1),
+                                    latestVersionName = latestVersionName.trim(),
+                                    updateUrl = updateUrl.trim(),
+                                    updateMessage = updateMessage.trim(),
+                                    forceUpdate = forceUpdate,
                                 )
                             )
                         },
@@ -1168,6 +1476,138 @@ fun SettingsDialog(
             }
         }
     }
+}
+
+@Composable
+fun AppUpdateRequiredDialog(
+    settings: PortalSettings,
+    isAdmin: Boolean,
+    onDismissForSession: () -> Unit,
+) {
+    val context = LocalContext.current
+    var copiedLink by remember { mutableStateOf(false) }
+    var launchError by remember { mutableStateOf<String?>(null) }
+    val mustWaitForUpdate = settings.forceUpdate && !isAdmin
+    val semColors = PortalTheme.colors
+
+    AlertDialog(
+        onDismissRequest = {
+            if (!mustWaitForUpdate) onDismissForSession()
+        },
+        properties = DialogProperties(
+            dismissOnBackPress = !mustWaitForUpdate,
+            dismissOnClickOutside = !mustWaitForUpdate,
+        ),
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.SystemUpdate,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(32.dp),
+            )
+        },
+        title = {
+            Text(
+                text = if (mustWaitForUpdate) {
+                    "Yêu cầu cập nhật phiên bản mới"
+                } else {
+                    "Đã có phiên bản ứng dụng mới"
+                },
+                fontWeight = FontWeight.Bold,
+            )
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = semColors.infoBg,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(
+                            text = "Phiên bản hiện tại: v${BuildConfig.VERSION_NAME} (mã ${BuildConfig.VERSION_CODE})",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = semColors.infoText,
+                        )
+                        val targetLabel = settings.latestVersionName.ifBlank { "${settings.latestVersionCode}.0" }
+                        Text(
+                            text = "Phiên bản mới nhất: v$targetLabel (mã ${settings.latestVersionCode})",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = semColors.infoText,
+                        )
+                    }
+                }
+
+                Text(
+                    text = settings.updateMessage.ifBlank {
+                        "Ban điều hành thôn vừa nâng cấp ứng dụng với các tính năng và cải tiến mới. Vui lòng tải và cài đặt bản mới để đồng bộ đầy đủ."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+
+                if (!launchError.isNullOrBlank()) {
+                    Text(
+                        text = launchError.orEmpty(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = {
+                        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        cm?.setPrimaryClip(ClipData.newPlainText("Link cập nhật", settings.updateUrl))
+                        copiedLink = true
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .minimumInteractiveComponentSize(),
+                ) {
+                    Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (copiedLink) "Đã sao chép liên kết tải" else "Sao chép liên kết tải")
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val targetUrl = settings.updateUrl.trim()
+                    if (targetUrl.startsWith("https://", ignoreCase = true) ||
+                        targetUrl.startsWith("http://", ignoreCase = true)
+                    ) {
+                        runCatching {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        }.onFailure {
+                            launchError = "Không mở được trình duyệt. Vui lòng sao chép liên kết bên trên để tải."
+                        }
+                    } else {
+                        launchError = "Liên kết tải chưa hợp lệ."
+                    }
+                },
+                modifier = Modifier.testTag("update_now_button"),
+            ) {
+                Text("Tải & Cập nhật ngay")
+            }
+        },
+        dismissButton = if (!mustWaitForUpdate) {
+            {
+                TextButton(
+                    onClick = onDismissForSession,
+                    modifier = Modifier.testTag("update_later_button"),
+                ) {
+                    Text(if (isAdmin) "Đóng (Quản trị)" else "Để sau")
+                }
+            }
+        } else null,
+    )
 }
 
 @Composable

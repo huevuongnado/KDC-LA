@@ -46,9 +46,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,10 +59,18 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.example.util.DateUtils
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import com.example.data.model.PendingCitizenCredentials
 import com.example.data.repository.CommunityRepository
 import com.example.ui.auth.AuthScreen
@@ -71,6 +81,7 @@ import com.example.ui.components.NewsScreen
 import com.example.ui.components.PortalHeader
 import com.example.ui.dialogs.AccountAndRolesDialog
 import com.example.ui.dialogs.AdminResetCitizenPasswordDialog
+import com.example.ui.dialogs.AppUpdateRequiredDialog
 import com.example.ui.dialogs.ChangeOwnPasswordDialog
 import com.example.ui.dialogs.ComplaintDialog
 import com.example.ui.dialogs.ConfirmActionDialog
@@ -235,12 +246,54 @@ private fun ThonLongAnApp(
         viewModel.selectTab(PortalTab.NEWS)
     }
 
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_START -> viewModel.setUserPresence(true)
+                Lifecycle.Event.ON_STOP -> viewModel.setUserPresence(false)
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    LaunchedEffect(lifecycleOwner, viewModel) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (isActive) {
+                delay(60_000L)
+                viewModel.setUserPresence(true)
+            }
+        }
+    }
+
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(uiState.isAdmin) {
+        if (uiState.isAdmin) {
+            while (isActive) {
+                nowMillis = System.currentTimeMillis()
+                delay(20_000L)
+            }
+        }
+    }
+    val onlineUsersCount = remember(uiState.knownUsers, nowMillis) {
+        uiState.knownUsers.count { u ->
+            DateUtils.isOnlineActive(u.online, u.lastActiveAt?.toDate()?.time, nowMillis)
+        }
+    }
+
     val performLogout: () -> Unit = {
         onClearPendingCitizen()
-        signOut(
-            credentialManager = credentialManager,
-            scope = scope,
-        )
+        scope.launch {
+            viewModel.markOfflineBeforeSignOut()
+            signOut(
+                credentialManager = credentialManager,
+                scope = scope,
+            )
+        }
     }
 
     if (hasPendingCitizenLogin && !uiState.isReady) {
@@ -270,6 +323,16 @@ private fun ThonLongAnApp(
         return
     }
 
+    var dismissedUpdateVersion by rememberSaveable { mutableIntStateOf(0) }
+    val updateUrlClean = uiState.settings.updateUrl.trim()
+    val hasValidUpdateUrl = updateUrlClean.startsWith("https://", ignoreCase = true) ||
+        updateUrlClean.startsWith("http://", ignoreCase = true)
+    val shouldShowUpdatePrompt = uiState.isReady &&
+        uiState.settings.latestVersionCode > BuildConfig.VERSION_CODE &&
+        hasValidUpdateUrl &&
+        ((uiState.settings.forceUpdate && !uiState.isAdmin) ||
+            dismissedUpdateVersion < uiState.settings.latestVersionCode)
+
     if (uiState.requiresCitizenLogin) {
         CitizenAuthScreen(
             settings = uiState.settings,
@@ -281,6 +344,15 @@ private fun ThonLongAnApp(
             onSkipToNews = { viewModel.skipCitizenLogin() },
             onSwitchGoogleAccount = performLogout,
         )
+        if (shouldShowUpdatePrompt) {
+            AppUpdateRequiredDialog(
+                settings = uiState.settings,
+                isAdmin = uiState.isAdmin,
+                onDismissForSession = {
+                    dismissedUpdateVersion = uiState.settings.latestVersionCode
+                },
+            )
+        }
         return
     }
 
@@ -367,15 +439,19 @@ private fun ThonLongAnApp(
                     PortalHeader(
                         settings = uiState.settings,
                         session = uiState.session,
-                        onAccountClick = { viewModel.openDialog(ActiveDialog.AccountAndRoles) },
+                        onAccountClick = { viewModel.openDialog(ActiveDialog.AccountAndRoles()) },
                         onLogoutClick = performLogout,
                     )
 
                     if (uiState.isAdmin) {
                         AdminActionStrip(
+                            onlineUsersCount = onlineUsersCount,
+                            onOpenOnlineUsers = {
+                                viewModel.openDialog(ActiveDialog.AccountAndRoles(initialFilterOnlineOnly = true))
+                            },
                             onOpenSplit = { viewModel.openDialog(ActiveDialog.SplitHousehold) },
                             onOpenSettings = { viewModel.openDialog(ActiveDialog.SettingsEditor) },
-                            onOpenRoles = { viewModel.openDialog(ActiveDialog.AccountAndRoles) },
+                            onOpenRoles = { viewModel.openDialog(ActiveDialog.AccountAndRoles()) },
                             onRestoreSample = { viewModel.openDialog(ActiveDialog.ConfirmRestoreSample) },
                         )
                     }
@@ -451,10 +527,11 @@ private fun ThonLongAnApp(
     when (val dialog = uiState.activeDialog) {
         ActiveDialog.None -> Unit
 
-        ActiveDialog.AccountAndRoles -> AccountAndRolesDialog(
+        is ActiveDialog.AccountAndRoles -> AccountAndRolesDialog(
             session = uiState.session,
             admins = uiState.admins,
             knownUsers = uiState.knownUsers,
+            initialFilterOnlineOnly = dialog.initialFilterOnlineOnly,
             onDismiss = { viewModel.closeDialog() },
             onGrantAdmin = { email, roleTitle -> viewModel.grantAdminByEmail(email, roleTitle) },
             onUpdateAdminRoleTitle = { uid, email, name, roleTitle ->
@@ -627,6 +704,16 @@ private fun ThonLongAnApp(
             confirmText = "Khôi phục",
             onDismiss = { viewModel.closeDialog() },
             onConfirm = { viewModel.restoreSampleData() },
+        )
+    }
+
+    if (shouldShowUpdatePrompt) {
+        AppUpdateRequiredDialog(
+            settings = uiState.settings,
+            isAdmin = uiState.isAdmin,
+            onDismissForSession = {
+                dismissedUpdateVersion = uiState.settings.latestVersionCode
+            },
         )
     }
 }

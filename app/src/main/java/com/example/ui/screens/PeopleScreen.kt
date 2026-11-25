@@ -42,6 +42,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +56,9 @@ import com.example.data.model.AgeGroupFilter
 import com.example.data.model.CitizenAccountDoc
 import com.example.data.model.DomainConstants
 import com.example.data.model.PersonDoc
+import com.example.data.model.UserProfileDoc
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import com.example.ui.components.EmptyStateCard
 import com.example.ui.components.KpiMetricCard
 import com.example.ui.components.PortalDropdownField
@@ -78,6 +82,20 @@ fun PeopleScreen(
     val filters = state.filters
     val citizenAccountsByPersonId = remember(state.citizenAccounts) {
         state.citizenAccounts.associateBy { it.personId }
+    }
+    val knownUsersByPersonId = remember(state.knownUsers) {
+        state.knownUsers
+            .filter { it.linkedPersonId.isNotBlank() }
+            .associateBy { it.linkedPersonId }
+    }
+    var nowMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(state.isAdmin) {
+        if (state.isAdmin) {
+            while (isActive) {
+                nowMillis = System.currentTimeMillis()
+                delay(20_000L)
+            }
+        }
     }
 
     val kpiTotal = state.people.size
@@ -455,6 +473,8 @@ fun PeopleScreen(
                 PersonCard(
                     person = person,
                     citizenAccount = citizenAccountsByPersonId[person.id],
+                    linkedUser = knownUsersByPersonId[person.id],
+                    nowMillis = nowMillis,
                     isAdmin = state.isAdmin,
                     onEdit = { onOpenDialog(ActiveDialog.PersonEditor(person)) },
                     onResetPassword = { onOpenDialog(ActiveDialog.AdminResetCitizenPassword(person)) },
@@ -469,6 +489,8 @@ fun PeopleScreen(
 private fun PersonCard(
     person: PersonDoc,
     citizenAccount: CitizenAccountDoc?,
+    linkedUser: UserProfileDoc?,
+    nowMillis: Long,
     isAdmin: Boolean,
     onEdit: () -> Unit,
     onResetPassword: () -> Unit,
@@ -544,6 +566,18 @@ private fun PersonCard(
                         text = if (citizenAccount.mustChangePassword) "MK mặc định (CCCD)" else "Đã đổi MK",
                         backgroundColor = if (citizenAccount.mustChangePassword) semColors.infoBg else semColors.successBg,
                         textColor = if (citizenAccount.mustChangePassword) semColors.infoText else semColors.successText,
+                    )
+                }
+                if (isAdmin && linkedUser != null) {
+                    val isOnline = DateUtils.isOnlineActive(
+                        linkedUser.online,
+                        linkedUser.lastActiveAt?.toDate()?.time,
+                        nowMillis,
+                    )
+                    StatusPill(
+                        text = if (isOnline) "● Đang online" else "Ngoại tuyến",
+                        backgroundColor = if (isOnline) semColors.successBg else semColors.neutralPillBg,
+                        textColor = if (isOnline) semColors.successText else semColors.neutralPillText,
                     )
                 }
             }

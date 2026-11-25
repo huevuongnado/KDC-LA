@@ -13,6 +13,8 @@
         "householdId": { "type": "string", "description": "Linked household ID." },
         "linkedPersonId": { "type": "string", "description": "Verified citizen person ID." },
         "role": { "type": "string", "enum": ["citizen", "admin"], "description": "User role." },
+        "online": { "type": "boolean", "description": "Whether the user currently has an active app session." },
+        "lastActiveAt": { "type": "string", "format": "date-time", "description": "Last server-recorded presence heartbeat timestamp." },
         "createdAt": { "type": "string", "format": "date-time", "description": "Server creation timestamp." },
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server update timestamp." }
       },
@@ -116,13 +118,18 @@
     },
     "PortalSettingsDoc": {
       "title": "PortalSettingsDoc",
-      "description": "Shared village portal header, slogan, and theme settings.",
+      "description": "Shared village portal header, slogan, theme, and in-app update prompt settings.",
       "type": "object",
       "properties": {
         "title": { "type": "string" },
         "slogan": { "type": "string" },
         "themeKey": { "type": "string" },
         "fontSize": { "type": "integer" },
+        "latestVersionCode": { "type": "integer" },
+        "latestVersionName": { "type": "string" },
+        "updateUrl": { "type": "string" },
+        "updateMessage": { "type": "string" },
+        "forceUpdate": { "type": "boolean" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "slogan", "themeKey", "fontSize", "updatedAt"]

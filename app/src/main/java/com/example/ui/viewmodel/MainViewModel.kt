@@ -40,6 +40,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class PortalTab(val route: String, val label: String) {
     NEWS("news", "Bảng tin"),
@@ -50,7 +51,7 @@ enum class PortalTab(val route: String, val label: String) {
 
 sealed interface ActiveDialog {
     data object None : ActiveDialog
-    data object AccountAndRoles : ActiveDialog
+    data class AccountAndRoles(val initialFilterOnlineOnly: Boolean = false) : ActiveDialog
     data object ChangeOwnPassword : ActiveDialog
     data class AdminResetCitizenPassword(val person: PersonDoc) : ActiveDialog
     data class PostEditor(val post: PostDoc? = null) : ActiveDialog
@@ -423,6 +424,18 @@ class MainViewModel(
 
     fun closeDialog() {
         activeDialogFlow.value = ActiveDialog.None
+    }
+
+    fun setUserPresence(online: Boolean) {
+        viewModelScope.launch {
+            repository.updateUserPresence(online)
+        }
+    }
+
+    suspend fun markOfflineBeforeSignOut() {
+        withTimeoutOrNull(1_500L) {
+            repository.updateUserPresence(false)
+        }
     }
 
     fun updateFilters(transform: (FilterState) -> FilterState) {

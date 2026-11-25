@@ -81,6 +81,8 @@ service cloud.firestore {
         (!('householdId' in data) || (data.householdId is string && data.householdId.size() <= 64)) &&
         (!('linkedPersonId' in data) || (data.linkedPersonId is string && data.linkedPersonId.size() <= 64)) &&
         data.role in ['citizen', 'admin'] &&
+        (!('online' in data) || data.online is bool) &&
+        (!('lastActiveAt' in data) || isValidTimestamp(data.lastActiveAt)) &&
         isValidTimestamp(data.createdAt) &&
         isValidTimestamp(data.updatedAt);
     }
@@ -177,6 +179,11 @@ service cloud.firestore {
         data.slogan is string && data.slogan.size() >= 1 && data.slogan.size() <= 500 &&
         data.themeKey in ['green', 'red', 'blue', 'teal', 'brown'] &&
         data.fontSize is int && data.fontSize >= 13 && data.fontSize <= 20 &&
+        (!('latestVersionCode' in data) || (data.latestVersionCode is int && data.latestVersionCode >= 1 && data.latestVersionCode <= 1000000)) &&
+        (!('latestVersionName' in data) || (data.latestVersionName is string && data.latestVersionName.size() <= 40)) &&
+        (!('updateUrl' in data) || (data.updateUrl is string && data.updateUrl.size() <= 500 && (data.updateUrl == '' || data.updateUrl.matches('^https?://.*')))) &&
+        (!('updateMessage' in data) || (data.updateMessage is string && data.updateMessage.size() <= 1000)) &&
+        (!('forceUpdate' in data) || data.forceUpdate is bool) &&
         isValidTimestamp(data.updatedAt);
     }
 
@@ -227,7 +234,7 @@ service cloud.firestore {
         request.auth.uid == userId &&
         incoming().userId == request.auth.uid &&
         incoming().keys().hasAll(['userId', 'email', 'name', 'role', 'createdAt', 'updatedAt']) &&
-        incoming().keys().hasOnly(['userId', 'email', 'name', 'phone', 'cluster', 'householdId', 'linkedPersonId', 'role', 'createdAt', 'updatedAt']) &&
+        incoming().keys().hasOnly(['userId', 'email', 'name', 'phone', 'cluster', 'householdId', 'linkedPersonId', 'role', 'online', 'lastActiveAt', 'createdAt', 'updatedAt']) &&
         (incoming().role == 'citizen' || isAdmin()) &&
         isValidUserProfile(incoming());
 
@@ -241,7 +248,7 @@ service cloud.firestore {
             request.auth.uid == userId &&
             incoming().role == existing().role &&
             incoming().email == existing().email &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'cluster', 'householdId', 'linkedPersonId', 'updatedAt'])
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'phone', 'cluster', 'householdId', 'linkedPersonId', 'online', 'lastActiveAt', 'updatedAt'])
           )
         );
 
@@ -429,7 +436,11 @@ service cloud.firestore {
       allow list: if false;
       allow create, update: if isAdmin() && settingId == 'portal' &&
         incoming().keys().hasAll(['title', 'slogan', 'themeKey', 'fontSize', 'updatedAt']) &&
-        incoming().keys().hasOnly(['title', 'slogan', 'themeKey', 'fontSize', 'updatedAt']) &&
+        incoming().keys().hasOnly([
+          'title', 'slogan', 'themeKey', 'fontSize',
+          'latestVersionCode', 'latestVersionName', 'updateUrl', 'updateMessage', 'forceUpdate',
+          'updatedAt'
+        ]) &&
         isValidPortalSettings(incoming());
       allow delete: if false;
     }

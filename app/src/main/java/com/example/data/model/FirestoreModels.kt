@@ -18,6 +18,8 @@ data class UserProfileDoc(
     val householdId: String = "",
     val linkedPersonId: String = "",
     val role: String = UserRole.CITIZEN.key,
+    val online: Boolean = false,
+    @ServerTimestamp val lastActiveAt: Timestamp? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
@@ -136,6 +138,11 @@ data class PortalSettingsDoc(
     val slogan: String = "Đoàn kết xây dựng khu dân cư văn minh, an toàn, nghĩa tình • Chấp hành tốt chủ trương của Đảng, chính sách pháp luật của Nhà nước • Chung tay xây dựng nông thôn mới",
     val themeKey: String = "green",
     val fontSize: Int = 15,
+    val latestVersionCode: Int = 1,
+    val latestVersionName: String = "",
+    val updateUrl: String = "",
+    val updateMessage: String = "",
+    val forceUpdate: Boolean = false,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 )
 

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.HomeWork
 import androidx.compose.material.icons.filled.ManageAccounts
@@ -288,12 +289,15 @@ fun PortalHeader(
 
 @Composable
 fun AdminActionStrip(
+    onlineUsersCount: Int = 0,
+    onOpenOnlineUsers: () -> Unit = {},
     onOpenSplit: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenRoles: () -> Unit,
     onRestoreSample: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val semColors = PortalTheme.colors
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerLow,
         modifier = modifier.fillMaxWidth(),
@@ -306,6 +310,23 @@ fun AdminActionStrip(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                AssistChip(
+                    onClick = onOpenOnlineUsers,
+                    label = { Text("Trực tuyến ($onlineUsersCount)") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Filled.Circle,
+                            contentDescription = null,
+                            tint = if (onlineUsersCount > 0) {
+                                semColors.successText
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                            modifier = Modifier.size(12.dp),
+                        )
+                    },
+                    modifier = Modifier.testTag("admin_online_chip"),
+                )
                 AssistChip(
                     onClick = onOpenSplit,
                     label = { Text("Tách hộ") },
@@ -324,7 +345,7 @@ fun AdminActionStrip(
                 )
                 AssistChip(
                     onClick = onOpenSettings,
-                    label = { Text("Giao diện & Logo") },
+                    label = { Text("Giao diện & Cập nhật") },
                     leadingIcon = {
                         Icon(Icons.Filled.Palette, contentDescription = null, modifier = Modifier.size(18.dp))
                     },

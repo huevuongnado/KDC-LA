@@ -213,6 +213,35 @@ test("Bootstrapped admin can CRUD households, people, posts, settings, and add s
   const secondAdminDb = citizenContext(SECOND_ADMIN_UID, SECOND_ADMIN_EMAIL, true).firestore();
   await assertSucceeds(secondAdminDb.collection("households").get());
   await assertSucceeds(secondAdminDb.collection("people").get());
+
+  // Admin can publish portal settings with app update metadata
+  await assertSucceeds(
+    db.collection("settings").doc("portal").set({
+      title: "Thôn Long An",
+      slogan: "Đoàn kết xây dựng khu dân cư văn minh",
+      themeKey: "green",
+      fontSize: 15,
+      latestVersionCode: 3,
+      latestVersionName: "1.2",
+      updateUrl: "https://github.com/example/kdc-la/releases/latest",
+      updateMessage: "Bổ sung thông báo cập nhật mới.",
+      forceUpdate: true,
+      updatedAt: past,
+    })
+  );
+
+  // Reject unsafe non-http(s) updateUrl scheme
+  await assertFails(
+    db.collection("settings").doc("portal").set({
+      title: "Thôn Long An",
+      slogan: "Đoàn kết xây dựng khu dân cư văn minh",
+      themeKey: "green",
+      fontSize: 15,
+      latestVersionCode: 3,
+      updateUrl: "javascript:alert(1)",
+      updatedAt: past,
+    })
+  );
 });
 
 test("Citizen can only read linked household/people via scoped query and cannot mutate them", async () => {
@@ -344,10 +373,21 @@ test("User profile prevents self-assigned admin role escalation", async () => {
     })
   );
 
-  // Updating own phone succeeds
+  // Updating own phone and online presence succeeds
   await assertSucceeds(
     aliceDb.collection("users").doc(ALICE_UID).update({
       phone: "0988777666",
+      online: true,
+      lastActiveAt: new Date(Date.now() - 1000),
+      updatedAt: new Date(Date.now() - 1000),
+    })
+  );
+
+  // Tampered future lastActiveAt fails
+  await assertFails(
+    aliceDb.collection("users").doc(ALICE_UID).update({
+      online: true,
+      lastActiveAt: new Date(Date.now() + 60000),
       updatedAt: new Date(Date.now() - 1000),
     })
   );

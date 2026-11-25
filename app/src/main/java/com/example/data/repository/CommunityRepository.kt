@@ -167,6 +167,11 @@ class CommunityRepository(
                     fontSize = remote.fontSize.coerceIn(13, 20),
                     logoPath = local.logoPath,
                     coverPath = local.coverPath,
+                    latestVersionCode = remote.latestVersionCode.coerceAtLeast(1),
+                    latestVersionName = remote.latestVersionName,
+                    updateUrl = remote.updateUrl,
+                    updateMessage = remote.updateMessage,
+                    forceUpdate = remote.forceUpdate,
                 )
             }
         )
@@ -553,12 +558,18 @@ class CommunityRepository(
                     "householdId" to matchedHouseholdId,
                     "linkedPersonId" to "",
                     "role" to desiredRole,
+                    "online" to true,
+                    "lastActiveAt" to FieldValue.serverTimestamp(),
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
                 userRef.set(payload).await()
             } else {
-                val updates = mutableMapOf<String, Any>()
+                val updates = mutableMapOf<String, Any>(
+                    "online" to true,
+                    "lastActiveAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
                 val existingRole = existingSnap.getString("role")
                 val existingHh = existingSnap.getString("householdId").orEmpty()
                 if (isAdmin && existingRole != UserRole.ADMIN.key) {
@@ -568,10 +579,7 @@ class CommunityRepository(
                     updates["householdId"] = matchedHouseholdId
                     updates["cluster"] = matchedCluster
                 }
-                if (updates.isNotEmpty()) {
-                    updates["updatedAt"] = FieldValue.serverTimestamp()
-                    userRef.update(updates).await()
-                }
+                userRef.update(updates).await()
             }
 
             Result.success(isAdmin)
@@ -580,6 +588,19 @@ class CommunityRepository(
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.WRITE, docPath)
             Result.failure(e)
+        }
+    }
+
+    suspend fun updateUserPresence(online: Boolean) {
+        val uid = auth.currentUser?.uid ?: return
+        runCatching {
+            db.collection("users").document(uid).update(
+                mapOf(
+                    "online" to online,
+                    "lastActiveAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                )
+            ).await()
         }
     }
 
@@ -1356,6 +1377,8 @@ class CommunityRepository(
                     "cluster" to account.cluster,
                     "name" to account.name.take(120),
                     "phone" to account.phone.take(30),
+                    "online" to true,
+                    "lastActiveAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
             ).await()
@@ -1789,8 +1812,17 @@ class CommunityRepository(
     suspend fun updateSettings(settings: PortalSettings): Result<String> {
         val cleanTitle = settings.title.trim()
         val cleanSlogan = settings.slogan.trim()
+        val cleanUpdateUrl = settings.updateUrl.trim()
+        val cleanVersionName = settings.latestVersionName.trim()
+        val cleanUpdateMsg = settings.updateMessage.trim()
         if (cleanTitle.isBlank()) return Result.failure(IllegalArgumentException("Tên đơn vị / tiêu đề không được để trống."))
         if (cleanSlogan.isBlank()) return Result.failure(IllegalArgumentException("Khẩu hiệu không được để trống."))
+        if (cleanUpdateUrl.isNotBlank() &&
+            !cleanUpdateUrl.startsWith("https://", ignoreCase = true) &&
+            !cleanUpdateUrl.startsWith("http://", ignoreCase = true)
+        ) {
+            return Result.failure(IllegalArgumentException("Liên kết tải bản cập nhật phải bắt đầu bằng https:// hoặc http://"))
+        }
 
         localMediaPrefs.savePaths(settings.logoPath, settings.coverPath)
         val docRef = db.collection("settings").document("portal")
@@ -1802,6 +1834,11 @@ class CommunityRepository(
                     "slogan" to cleanSlogan.take(500),
                     "themeKey" to settings.themeKey,
                     "fontSize" to settings.fontSize.coerceIn(13, 20),
+                    "latestVersionCode" to settings.latestVersionCode.coerceIn(1, 1_000_000),
+                    "latestVersionName" to cleanVersionName.take(40),
+                    "updateUrl" to cleanUpdateUrl.take(500),
+                    "updateMessage" to cleanUpdateMsg.take(1000),
+                    "forceUpdate" to settings.forceUpdate,
                     "updatedAt" to FieldValue.serverTimestamp(),
                 )
             ).await()
